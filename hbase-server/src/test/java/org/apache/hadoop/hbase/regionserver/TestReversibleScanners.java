@@ -260,7 +260,7 @@ public class TestReversibleScanners {
 
     ScanInfo scanInfo = new ScanInfo(TEST_UTIL.getConfiguration(), FAMILYNAME, 0, Integer.MAX_VALUE,
       Long.MAX_VALUE, KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0,
-      CellComparatorImpl.COMPARATOR, false);
+      CellComparatorImpl.COMPARATOR, false, false);
 
     // Case 1.Test a full reversed scan
     Scan scan = new Scan();

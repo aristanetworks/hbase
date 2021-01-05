@@ -212,7 +212,7 @@ public class TestRegionCoprocessorHost {
     long oldTTL = 10000;
 
     return new ScanInfo(conf, Bytes.toBytes("cf"), oldMinVersions, oldMaxVersions, oldTTL,
-      KeepDeletedCells.FALSE, HConstants.FOREVER, 1000, CellComparator.getInstance(), true);
+      KeepDeletedCells.FALSE, HConstants.FOREVER, 1000, CellComparator.getInstance(), true, false);
   }
 
   /*

@@ -169,7 +169,9 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     get = scan.isGetScan();
     explicitColumnQuery = numColumns > 0;
     this.scan = scan;
-    this.now = EnvironmentEdgeManager.currentTime();
+    this.now = scanInfo.isNanosecondTimestamps()
+      ? EnvironmentEdgeManager.currentTimeNano()
+      : EnvironmentEdgeManager.currentTime();
     this.oldestUnexpiredTS = scan.isRaw() ? 0L : now - scanInfo.getTtl();
     this.minVersions = scanInfo.getMinVersions();
 

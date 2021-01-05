@@ -62,7 +62,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     // Do with fam2 which has a col2 qualifier.
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(scan,
       new ScanInfo(this.conf, fam2, 10, 1, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
     Cell kv = new KeyValue(row1, fam2, col2, 1, data);
     Cell cell = PrivateCellUtil.createLastOnRowCol(kv);
@@ -89,7 +89,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     // 2,4,5
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(
       scan, new ScanInfo(this.conf, fam2, 0, 1, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
 
     List<KeyValue> memstore = new ArrayList<>(6);
@@ -131,9 +131,11 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     expected.add(ScanQueryMatcher.MatchCode.DONE);
 
     long now = EnvironmentEdgeManager.currentTime();
-    UserScanQueryMatcher qm = UserScanQueryMatcher.create(scan, new ScanInfo(this.conf, fam2, 0, 1,
-      ttl, KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false), null,
-      now - ttl, now, null);
+    UserScanQueryMatcher qm =
+      UserScanQueryMatcher.create(scan,
+        new ScanInfo(this.conf, fam2, 0, 1, ttl, KeepDeletedCells.FALSE,
+          HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
+        null, now - ttl, now, null);
 
     List<KeyValue> memstore = new ArrayList<>(6);
     memstore.add(new KeyValue(row1, fam2, col1, 1, data));
@@ -177,7 +179,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     long now = EnvironmentEdgeManager.currentTime();
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(scan,
       new ScanInfo(this.conf, fam2, 0, 1, testTTL, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - testTTL, now, null);
 
     KeyValue[] kvs = new KeyValue[] { new KeyValue(row1, fam2, col1, now - 100, data),
@@ -217,9 +219,10 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
         ScanQueryMatcher.MatchCode.SEEK_NEXT_COL, ScanQueryMatcher.MatchCode.DONE };
 
     long now = EnvironmentEdgeManager.currentTime();
-    UserScanQueryMatcher qm = UserScanQueryMatcher.create(scan, new ScanInfo(this.conf, fam2, 0, 1,
-      testTTL, KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false), null,
-      now - testTTL, now, null);
+    UserScanQueryMatcher qm = UserScanQueryMatcher.create(scan,
+      new ScanInfo(this.conf, fam2, 0, 1, testTTL, KeepDeletedCells.FALSE,
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
+      null, now - testTTL, now, null);
 
     KeyValue[] kvs = new KeyValue[] { new KeyValue(row1, fam2, col1, now - 100, data),
       new KeyValue(row1, fam2, col2, now - 50, data),
@@ -263,7 +266,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     // scan with column 2,4,5
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(
       scanWithFilter, new ScanInfo(this.conf, fam2, 0, 1, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
 
     List<KeyValue> memstore = new ArrayList<>();
@@ -313,7 +316,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     // scan with column 2,4,5, the family with maxVersion = 3
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(
       scanWithFilter, new ScanInfo(this.conf, fam2, 0, 3, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
 
     List<KeyValue> memstore = new ArrayList<>();
@@ -333,7 +336,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     scanWithFilter = new Scan(scan).setFilter(new AlwaysIncludeFilter()).readVersions(1);
     qm = UserScanQueryMatcher.create(
       scanWithFilter, new ScanInfo(this.conf, fam2, 0, 2, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
 
     List<KeyValue> memstore2 = new ArrayList<>();
@@ -373,7 +376,7 @@ public class TestUserScanQueryMatcher extends AbstractTestScanQueryMatcher {
     // scan with column 2,4,5, the family with maxVersion = 5
     UserScanQueryMatcher qm = UserScanQueryMatcher.create(
       scanWithFilter, new ScanInfo(this.conf, fam2, 0, 5, ttl, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false),
+        HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false),
       get.getFamilyMap().get(fam2), now - ttl, now, null);
 
     List<KeyValue> memstore = new ArrayList<>();

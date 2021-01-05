@@ -830,8 +830,13 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
      * if the user-specified TS is newer than now + slop. LATEST_TIMESTAMP == don't use this
      * functionality
      */
-    this.timestampSlop =
+    long tSlop =
       conf.getLong("hbase.hregion.keyvalue.timestamp.slop.millisecs", HConstants.LATEST_TIMESTAMP);
+    if (tSlop != HConstants.LATEST_TIMESTAMP && this.htableDescriptor.isNanosecondTimestamps()) {
+      // Scale slob to nanosecond precision if this table configured to handle nanoseconds.
+      tSlop *= 1000000;
+    }
+    this.timestampSlop = tSlop;
 
     /**
      * Timeout for the process time in processRowsWithLocks(). Use -1 to switch off time bound.
@@ -1336,6 +1341,10 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         + ") memStoreSizing to a negative value which is incorrect. Current memStoreSizing="
         + (memStoreDataSize - delta) + ", delta=" + delta, new Exception());
     }
+  }
+
+  private static long currentTimeForCell(final boolean isNano) {
+    return isNano ? EnvironmentEdgeManager.currentTimeNano() : EnvironmentEdgeManager.currentTime();
   }
 
   @Override
@@ -3659,7 +3668,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       final int[] metrics = { 0, 0, 0, 0 };
 
       visitBatchOperations(true, this.size(), new Visitor() {
-        private long now = EnvironmentEdgeManager.currentTime();
+        private long now = currentTimeForCell(region.htableDescriptor.isNanosecondTimestamps());
         private WALEdit walEdit;
 
         @Override
@@ -4322,7 +4331,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
     @Override
     public void checkAndPrepare() throws IOException {
-      long now = EnvironmentEdgeManager.currentTime();
+      long now = currentTimeForCell(region.htableDescriptor.isNanosecondTimestamps());
       visitBatchOperations(true, this.size(), (int index) -> {
         checkAndPrepareMutation(index, now);
         return true;
@@ -4503,8 +4512,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       // We should record the timestamp only after we have acquired the rowLock,
       // otherwise, newer puts/deletes/increment/append are not guaranteed to have a newer
       // timestamp
-
-      long now = EnvironmentEdgeManager.currentTime();
+      long now = currentTimeForCell(this.htableDescriptor.isNanosecondTimestamps());
       batchOp.prepareMiniBatchOperations(miniBatchOp, now, acquiredRowLocks);
 
       // STEP 3. Build WAL edit
@@ -4763,7 +4771,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
           // non-decreasing (see HBASE-14070) we should make sure that the mutation has a
           // larger timestamp than what was observed via Get. doBatchMutate already does this, but
           // there is no way to pass the cellTs. See HBASE-14054.
-          long now = EnvironmentEdgeManager.currentTime();
+          long now = currentTimeForCell(this.htableDescriptor.isNanosecondTimestamps());
           long ts = Math.max(now, cellTs); // ensure write is not eclipsed
           byte[] byteTs = Bytes.toBytes(ts);
           if (mutation != null) {
@@ -7533,7 +7541,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     // Short circuit the read only case
     if (processor.readOnly()) {
       try {
-        long now = EnvironmentEdgeManager.currentTime();
+        long now = currentTimeForCell(this.htableDescriptor.isNanosecondTimestamps());
         doProcessRowWithTimeout(processor, now, this, null, null, timeout);
         processor.postProcess(this, walEdit, true);
       } finally {
@@ -7583,7 +7591,8 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         // From this point until memstore update this operation should not be interrupted.
         disableInterrupts();
 
-        long now = EnvironmentEdgeManager.currentTime();
+        long now = currentTimeForCell(this.htableDescriptor.isNanosecondTimestamps());
+
         // STEP 4. Let the processor scan the rows, generate mutations and add waledits
         doProcessRowWithTimeout(processor, now, this, mutations, walEdit, timeout);
         if (!mutations.isEmpty()) {

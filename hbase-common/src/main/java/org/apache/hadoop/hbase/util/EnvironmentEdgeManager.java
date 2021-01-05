@@ -54,7 +54,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  * advised not to inject any other {@link org.apache.hadoop.hbase.util.EnvironmentEdge}.
  */
 @InterfaceAudience.Private
-public class EnvironmentEdgeManager {
+final public class EnvironmentEdgeManager {
   private static volatile EnvironmentEdge delegate = new DefaultEnvironmentEdge();
 
   private EnvironmentEdgeManager() {
@@ -95,5 +95,13 @@ public class EnvironmentEdgeManager {
    */
   public static long currentTime() {
     return getDelegate().currentTime();
+  }
+
+  /**
+   * Defers to the delegate and calls the {@link EnvironmentEdge#currentTimeNano()} method.
+   * @return current time in nanoseconds according to the delegate.
+   */
+  public static long currentTimeNano() {
+    return getDelegate().currentTimeNano();
   }
 }

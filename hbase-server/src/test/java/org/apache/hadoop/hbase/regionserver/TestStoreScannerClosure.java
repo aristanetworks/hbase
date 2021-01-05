@@ -86,7 +86,7 @@ public class TestStoreScannerClosure {
   private static FileSystem fs;
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   private ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, Integer.MAX_VALUE, Long.MAX_VALUE,
-    KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+    KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
   private final static byte[] fam = Bytes.toBytes("cf_1");
   private static final KeyValue[] kvs =
     new KeyValue[] { create("R1", "cf", "a", 11, KeyValue.Type.Put, "dont-care"),

@@ -269,14 +269,9 @@ public class HStore
 
     this.dataBlockEncoder = new HFileDataBlockEncoderImpl(family.getDataBlockEncoding());
 
-    // used by ScanQueryMatcher
-    long timeToPurgeDeletes = Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
-    LOG.trace("Time to purge deletes set to {}ms in {}", timeToPurgeDeletes, this);
-    // Get TTL
-    long ttl = determineTTLFromFamily(family);
-    // Why not just pass a HColumnDescriptor in here altogether? Even if have
-    // to clone it?
-    scanInfo = new ScanInfo(conf, family, ttl, timeToPurgeDeletes, region.getCellComparator());
+    this.scanInfo =
+      new ScanInfo(conf, region.getTableDescriptor(), family, region.getCellComparator());
+
     this.memstore = getMemstore();
 
     this.offPeakHours = OffPeakHours.getInstance(conf);
@@ -404,22 +399,6 @@ public class HStore
   protected StoreEngine<?, ?, ?, ?> createStoreEngine(HStore store, Configuration conf,
     CellComparator kvComparator) throws IOException {
     return StoreEngine.create(store, conf, kvComparator);
-  }
-
-  /** Returns TTL in seconds of the specified family */
-  public static long determineTTLFromFamily(final ColumnFamilyDescriptor family) {
-    // HCD.getTimeToLive returns ttl in seconds. Convert to milliseconds.
-    long ttl = family.getTimeToLive();
-    if (ttl == HConstants.FOREVER) {
-      // Default is unlimited ttl.
-      ttl = Long.MAX_VALUE;
-    } else if (ttl == -1) {
-      ttl = Long.MAX_VALUE;
-    } else {
-      // Second -> ms adjust for user data
-      ttl *= 1000;
-    }
-    return ttl;
   }
 
   StoreContext getStoreContext() {
@@ -1560,8 +1539,10 @@ public class HStore
       synchronized (filesCompacting) {
         long cfTtl = getStoreFileTtl();
         if (cfTtl != Long.MAX_VALUE) {
-          delSfs = storeEngine.getStoreFileManager()
-            .getUnneededFiles(EnvironmentEdgeManager.currentTime() - cfTtl, filesCompacting);
+          long now = scanInfo.isNanosecondTimestamps()
+            ? EnvironmentEdgeManager.currentTimeNano()
+            : EnvironmentEdgeManager.currentTime();
+          delSfs = storeEngine.getStoreFileManager().getUnneededFiles(now - cfTtl, filesCompacting);
           addToCompactingFiles(delSfs);
         }
       }

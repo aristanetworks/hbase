@@ -178,6 +178,15 @@ public class TableDescriptorBuilder {
     new Bytes(Bytes.toBytes(NORMALIZER_TARGET_REGION_SIZE));
 
   /**
+   * The flag to indicate whether or not to handle timestamps for this table with nanosecond
+   * precision.
+   */
+  @InterfaceAudience.Private
+  public static final String NANOSECOND_TIMESTAMPS = "NANOSECOND_TIMESTAMPS";
+  private static final Bytes NANOSECOND_TIMESTAMPS_KEY =
+    new Bytes(Bytes.toBytes(NANOSECOND_TIMESTAMPS));
+
+  /**
    * Default durability for HTD is USE_DEFAULT, which defaults to HBase-global default value
    */
   private static final Durability DEFAULT_DURABLITY = Durability.USE_DEFAULT;
@@ -224,6 +233,8 @@ public class TableDescriptorBuilder {
 
   public static final boolean DEFAULT_REGION_MEMSTORE_REPLICATION = true;
 
+  public static final boolean DEFAULT_NANOSECOND_TIMESTAMPS = false;
+
   private final static Map<String, String> DEFAULT_VALUES = new HashMap<>();
   private final static Set<Bytes> RESERVED_KEYWORDS = new HashSet<>();
 
@@ -234,6 +245,7 @@ public class TableDescriptorBuilder {
     DEFAULT_VALUES.put(DURABILITY, DEFAULT_DURABLITY.name()); // use the enum name
     DEFAULT_VALUES.put(REGION_REPLICATION, String.valueOf(DEFAULT_REGION_REPLICATION));
     DEFAULT_VALUES.put(PRIORITY, String.valueOf(DEFAULT_PRIORITY));
+    DEFAULT_VALUES.put(NANOSECOND_TIMESTAMPS, String.valueOf(DEFAULT_NANOSECOND_TIMESTAMPS));
     DEFAULT_VALUES.keySet().stream().map(s -> new Bytes(Bytes.toBytes(s)))
       .forEach(RESERVED_KEYWORDS::add);
     RESERVED_KEYWORDS.add(IS_META_KEY);
@@ -497,6 +509,11 @@ public class TableDescriptorBuilder {
 
   public TableDescriptorBuilder setNormalizationEnabled(final boolean isEnable) {
     desc.setNormalizationEnabled(isEnable);
+    return this;
+  }
+
+  public TableDescriptorBuilder setNanosecondTimestamps(final boolean isNano) {
+    desc.setNanosecondTimestamps(isNano);
     return this;
   }
 
@@ -857,6 +874,25 @@ public class TableDescriptorBuilder {
      */
     public ModifyableTableDescriptor setMergeEnabled(final boolean isEnable) {
       return setValue(MERGE_ENABLED_KEY, Boolean.toString(isEnable));
+    }
+
+    /**
+     * Check if table handles timestamps with nanoseconds precision.
+     * @return true if table uses nanosecond precision for timestamps.
+     */
+    @Override
+    public boolean isNanosecondTimestamps() {
+      return getOrDefault(NANOSECOND_TIMESTAMPS_KEY, Boolean::valueOf,
+        DEFAULT_NANOSECOND_TIMESTAMPS);
+    }
+
+    /**
+     * Setting the NANOSECOND_TIMESTAMPS flag
+     * @param isNano True to use nanosecond precision for timestamps.
+     * @return the modifyable TD
+     */
+    public ModifyableTableDescriptor setNanosecondTimestamps(final boolean isNano) {
+      return setValue(NANOSECOND_TIMESTAMPS_KEY, Boolean.toString(isNano));
     }
 
     /**

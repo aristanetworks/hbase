@@ -61,6 +61,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
   public static final String MERGE_ENABLED = TableDescriptorBuilder.MERGE_ENABLED;
   public static final String MEMSTORE_FLUSHSIZE = TableDescriptorBuilder.MEMSTORE_FLUSHSIZE;
   public static final String FLUSH_POLICY = TableDescriptorBuilder.FLUSH_POLICY;
+  public static final String NANOSECOND_TIMESTAMPS = TableDescriptorBuilder.NANOSECOND_TIMESTAMPS;
   public static final String IS_ROOT = "IS_ROOT";
   public static final String IS_META = TableDescriptorBuilder.IS_META;
   public static final String DURABILITY = TableDescriptorBuilder.DURABILITY;
@@ -86,6 +87,8 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
     TableDescriptorBuilder.DEFAULT_REGION_REPLICATION;
   public static final boolean DEFAULT_REGION_MEMSTORE_REPLICATION =
     TableDescriptorBuilder.DEFAULT_REGION_MEMSTORE_REPLICATION;
+  public static final boolean DEFAULT_NANOSECOND_TIMESTAMPS =
+    TableDescriptorBuilder.DEFAULT_NANOSECOND_TIMESTAMPS;
   protected final ModifyableTableDescriptor delegatee;
 
   /**
@@ -334,6 +337,24 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
 
   public HTableDescriptor setNormalizerTargetRegionSize(final long regionSize) {
     getDelegateeForModification().setNormalizerTargetRegionSize(regionSize);
+    return this;
+  }
+
+  /**
+   * Check if table handles timestamps with nanoseconds precision.
+   * @return true if table uses nanosecond precision for timestamps.
+   */
+  @Override
+  public boolean isNanosecondTimestamps() {
+    return delegatee.isNanosecondTimestamps();
+  }
+
+  /**
+   * Setting the NANOSECOND_TIMESTAMPS flag
+   * @param isNano True to use nanosecond precision for timestamps.
+   */
+  public HTableDescriptor setNanosecondTimestamps(final boolean isNano) {
+    getDelegateeForModification().setNanosecondTimestamps(isNano);
     return this;
   }
 

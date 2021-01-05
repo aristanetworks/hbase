@@ -229,7 +229,10 @@ public class TestMajorCompaction {
     // should result in a compacted store file that has no references to the
     // deleted row.
     LOG.debug("Adding deletes to memstore and flushing");
-    Delete delete = new Delete(secondRowBytes, EnvironmentEdgeManager.currentTime());
+    final long now = htd.isNanosecondTimestamps()
+      ? EnvironmentEdgeManager.currentTimeNano()
+      : EnvironmentEdgeManager.currentTime();
+    Delete delete = new Delete(secondRowBytes, now);
     byte[][] famAndQf = { COLUMN_FAMILY, null };
     delete.addFamily(famAndQf[0]);
     r.delete(delete);

@@ -31,4 +31,12 @@ public interface EnvironmentEdge {
    * @return Current time.
    */
   long currentTime();
+
+  /**
+   * Returns current time in nanosecond precision.
+   * @return current time in nanoseconds.
+   */
+  default long currentTimeNano() {
+    return currentTime() * 1000000;
+  }
 }
