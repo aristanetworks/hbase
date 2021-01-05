@@ -42,6 +42,7 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.regionserver.HStore;
@@ -99,8 +100,9 @@ public class TestDateTieredCompactor {
     conf.setBoolean("hbase.regionserver.compaction.private.readers", usePrivateReaders);
     final Scanner scanner = new Scanner(input);
     // Create store mock that is satisfactory for compactor.
+    HTableDescriptor td = new HTableDescriptor(TABLE_NAME);
     HColumnDescriptor col = new HColumnDescriptor(NAME_OF_THINGS);
-    ScanInfo si = new ScanInfo(conf, col, Long.MAX_VALUE, 0, CellComparatorImpl.COMPARATOR);
+    ScanInfo si = new ScanInfo(conf, td, col, CellComparatorImpl.COMPARATOR);
     HStore store = mock(HStore.class);
     when(store.getStorefiles()).thenReturn(storefiles);
     when(store.getColumnFamilyDescriptor()).thenReturn(col);

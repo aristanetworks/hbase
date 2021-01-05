@@ -23,6 +23,7 @@ import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -47,23 +48,23 @@ public class ScanInfo {
   private boolean parallelSeekEnabled;
   private final long preadMaxBytes;
   private final boolean newVersionBehavior;
+  private final boolean nanosecondTimestamps;
 
   public static final long FIXED_OVERHEAD =
     ClassSize.align(ClassSize.OBJECT + (2 * ClassSize.REFERENCE) + (2 * Bytes.SIZEOF_INT)
       + (4 * Bytes.SIZEOF_LONG) + (4 * Bytes.SIZEOF_BOOLEAN));
 
   /**
-   * @param family             {@link ColumnFamilyDescriptor} describing the column family
-   * @param ttl                Store's TTL (in ms)
-   * @param timeToPurgeDeletes duration in ms after which a delete marker can be purged during a
-   *                           major compaction.
-   * @param comparator         The store's comparator
+   * @param table      {@link TableDescriptor} describing the table
+   * @param family     {@link ColumnFamilyDescriptor} describing the column family
+   * @param comparator The store's comparator
    */
-  public ScanInfo(Configuration conf, ColumnFamilyDescriptor family, long ttl,
-    long timeToPurgeDeletes, CellComparator comparator) {
-    this(conf, family.getName(), family.getMinVersions(), family.getMaxVersions(), ttl,
-      family.getKeepDeletedCells(), family.getBlocksize(), timeToPurgeDeletes, comparator,
-      family.isNewVersionBehavior());
+  public ScanInfo(Configuration conf, TableDescriptor table, ColumnFamilyDescriptor family,
+    CellComparator comparator) {
+    this(conf, family.getName(), family.getMinVersions(), family.getMaxVersions(),
+      determineTTL(family, table.isNanosecondTimestamps()), family.getKeepDeletedCells(),
+      family.getBlocksize(), determineTimeToPurgeDeletes(conf, table.isNanosecondTimestamps()),
+      comparator, family.isNewVersionBehavior(), table.isNanosecondTimestamps());
   }
 
   private static long getCellsPerTimeoutCheck(Configuration conf) {
@@ -75,30 +76,33 @@ public class ScanInfo {
   }
 
   /**
-   * @param family             Name of this store's column family
-   * @param minVersions        Store's MIN_VERSIONS setting
-   * @param maxVersions        Store's VERSIONS setting
-   * @param ttl                Store's TTL (in ms)
-   * @param blockSize          Store's block size
-   * @param timeToPurgeDeletes duration in ms after which a delete marker can be purged during a
-   *                           major compaction.
-   * @param keepDeletedCells   Store's keepDeletedCells setting
-   * @param comparator         The store's comparator
+   * @param family               Name of this store's column family
+   * @param minVersions          Store's MIN_VERSIONS setting
+   * @param maxVersions          Store's VERSIONS setting
+   * @param ttl                  Store's TTL (in ms)
+   * @param blockSize            Store's block size
+   * @param timeToPurgeDeletes   duration in ms after which a delete marker can be purged during a
+   *                             major compaction.
+   * @param keepDeletedCells     Store's keepDeletedCells setting
+   * @param comparator           The store's comparator
+   * @param newVersionBehavior   whether compare cells by MVCC when scanning
+   * @param nanosecondTimestamps whether treat timestamps as nanoseconds
    */
   public ScanInfo(Configuration conf, byte[] family, int minVersions, int maxVersions, long ttl,
     KeepDeletedCells keepDeletedCells, long blockSize, long timeToPurgeDeletes,
-    CellComparator comparator, boolean newVersionBehavior) {
+    CellComparator comparator, boolean newVersionBehavior, boolean nanosecondTimestamps) {
     this(family, minVersions, maxVersions, ttl, keepDeletedCells, timeToPurgeDeletes, comparator,
       conf.getLong(HConstants.TABLE_MAX_ROWSIZE_KEY, HConstants.TABLE_MAX_ROWSIZE_DEFAULT),
       conf.getBoolean("hbase.storescanner.use.pread", false), getCellsPerTimeoutCheck(conf),
       conf.getBoolean(StoreScanner.STORESCANNER_PARALLEL_SEEK_ENABLE, false),
-      conf.getLong(StoreScanner.STORESCANNER_PREAD_MAX_BYTES, 4 * blockSize), newVersionBehavior);
+      conf.getLong(StoreScanner.STORESCANNER_PREAD_MAX_BYTES, 4 * blockSize), newVersionBehavior,
+      nanosecondTimestamps);
   }
 
   private ScanInfo(byte[] family, int minVersions, int maxVersions, long ttl,
     KeepDeletedCells keepDeletedCells, long timeToPurgeDeletes, CellComparator comparator,
     long tableMaxRowSize, boolean usePread, long cellsPerTimeoutCheck, boolean parallelSeekEnabled,
-    long preadMaxBytes, boolean newVersionBehavior) {
+    long preadMaxBytes, boolean newVersionBehavior, boolean nanosecondTimestamps) {
     this.family = family;
     this.minVersions = minVersions;
     this.maxVersions = maxVersions;
@@ -112,6 +116,47 @@ public class ScanInfo {
     this.parallelSeekEnabled = parallelSeekEnabled;
     this.preadMaxBytes = preadMaxBytes;
     this.newVersionBehavior = newVersionBehavior;
+    this.nanosecondTimestamps = nanosecondTimestamps;
+  }
+
+  /**
+   * @param conf                   is global configuration
+   * @param isNanosecondTimestamps whether timestamps are treated as nanoseconds
+   * @return TTL for deleted cells. Default in milliseconds and in nanoseconds if
+   *         NANOSECOND_TIMESTAMPS table attribute is provided.
+   */
+  private static long determineTimeToPurgeDeletes(final Configuration conf,
+    final boolean isNanosecondTimestamps) {
+    long ttpd = Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
+    if (isNanosecondTimestamps) {
+      ttpd *= 1000000;
+    }
+    return ttpd;
+  }
+
+  /**
+   * @param family                 is store's family
+   * @param isNanosecondTimestamps whether timestamps are treated as nanoseconds
+   * @return TTL of the specified column family. Default in milliseconds and in nanoseconds if
+   *         NANOSECOND_TIMESTAMPS table attribute is provided.
+   */
+  private static long determineTTL(final ColumnFamilyDescriptor family,
+    final boolean isNanosecondTimestamps) {
+    // ColumnFamilyDescriptor.getTimeToLive() returns ttl in seconds.
+    long ttl = family.getTimeToLive();
+    if (ttl == HConstants.FOREVER) {
+      // Default is unlimited ttl.
+      ttl = Long.MAX_VALUE;
+    } else if (ttl == -1) {
+      ttl = Long.MAX_VALUE;
+    } else if (isNanosecondTimestamps) {
+      // Second -> ns adjust for user data
+      ttl *= 1000000000;
+    } else {
+      // Second -> ms adjust for user data
+      ttl *= 1000;
+    }
+    return ttl;
   }
 
   long getTableMaxRowSize() {
@@ -167,7 +212,15 @@ public class ScanInfo {
   }
 
   /**
-   * Used by CP users for customizing max versions, ttl and keepDeletedCells.
+   * Whether ScanInfo is for table that assumes nanosecond timestamps.
+   * @return true if nanosecond timestamps.
+   */
+  public boolean isNanosecondTimestamps() {
+    return nanosecondTimestamps;
+  }
+
+  /**
+   * Used for CP users for customizing max versions, ttl and keepDeletedCells.
    */
   ScanInfo customize(int maxVersions, long ttl, KeepDeletedCells keepDeletedCells) {
     return customize(maxVersions, ttl, keepDeletedCells, minVersions, timeToPurgeDeletes);
@@ -181,7 +234,7 @@ public class ScanInfo {
     long timeToPurgeDeletes) {
     return new ScanInfo(family, minVersions, maxVersions, ttl, keepDeletedCells, timeToPurgeDeletes,
       comparator, tableMaxRowSize, usePread, cellsPerTimeoutCheck, parallelSeekEnabled,
-      preadMaxBytes, newVersionBehavior);
+      preadMaxBytes, newVersionBehavior, nanosecondTimestamps);
   }
 
   @Override

@@ -256,11 +256,14 @@ public class TestBulkLoadReplication extends TestReplicationBase {
     Path path = createMobFiles(UTIL3);
     ColumnFamilyDescriptor descriptor =
       new ColumnFamilyDescriptorBuilder.ModifyableColumnFamilyDescriptor(famName);
+    TableDescriptor td =
+      TableDescriptorBuilder.newBuilder(tableName).setColumnFamily(descriptor).build();
+
     ExecutorService pool = null;
     try {
       pool = Executors.newFixedThreadPool(1);
       PartitionedMobCompactor compactor = new PartitionedMobCompactor(UTIL3.getConfiguration(),
-        UTIL3.getTestFileSystem(), tableName, descriptor, pool);
+        UTIL3.getTestFileSystem(), td, descriptor, pool);
       BULK_LOAD_LATCH = new CountDownLatch(1);
       BULK_LOADS_COUNT.set(0);
       compactor.compact(Arrays.asList(UTIL3.getTestFileSystem().listStatus(path)), true);

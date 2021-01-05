@@ -73,8 +73,8 @@ public class MobCompactionChore extends ScheduledChore {
               master.reportMobCompactionStart(htd.getTableName());
               reported = true;
             }
-            MobUtils.doMobCompaction(master.getConfiguration(), master.getFileSystem(),
-              htd.getTableName(), hcd, pool, false, lock);
+            MobUtils.doMobCompaction(master.getConfiguration(), master.getFileSystem(), htd, hcd,
+              pool, false, lock);
           }
         } finally {
           if (reported) {

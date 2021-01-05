@@ -803,25 +803,26 @@ public final class MobUtils {
 
   /**
    * Performs the mob compaction.
-   * @param conf      the Configuration
-   * @param fs        the file system
-   * @param tableName the table the compact
-   * @param hcd       the column descriptor
-   * @param pool      the thread pool
-   * @param allFiles  Whether add all mob files into the compaction.
+   * @param conf     the Configuration
+   * @param fs       the file system
+   * @param td       the descriptor of the table to compact
+   * @param hcd      the column descriptor
+   * @param pool     the thread pool
+   * @param allFiles Whether add all mob files into the compaction.
    */
-  public static void doMobCompaction(Configuration conf, FileSystem fs, TableName tableName,
+  public static void doMobCompaction(Configuration conf, FileSystem fs, TableDescriptor td,
     ColumnFamilyDescriptor hcd, ExecutorService pool, boolean allFiles, LockManager.MasterLock lock)
     throws IOException {
     String className =
       conf.get(MobConstants.MOB_COMPACTOR_CLASS_KEY, PartitionedMobCompactor.class.getName());
     // instantiate the mob compactor.
     MobCompactor compactor = null;
+    final TableName tableName = td.getTableName();
     try {
       compactor = ReflectionUtils.instantiateWithCustomCtor(className,
-        new Class[] { Configuration.class, FileSystem.class, TableName.class,
+        new Class[] { Configuration.class, FileSystem.class, TableDescriptor.class,
           ColumnFamilyDescriptor.class, ExecutorService.class },
-        new Object[] { conf, fs, tableName, hcd, pool });
+        new Object[] { conf, fs, td, hcd, pool });
     } catch (Exception e) {
       throw new IOException("Unable to load configured mob file compactor '" + className + "'", e);
     }
@@ -835,7 +836,7 @@ public final class MobUtils {
       compactor.compact(allFiles);
     } catch (Exception e) {
       LOG.error("Failed to compact the mob files for the column " + hcd.getNameAsString()
-        + " in the table " + tableName.getNameAsString(), e);
+        + " in the table " + td.getTableName().getNameAsString(), e);
     } finally {
       LOG.info(
         "end MOB compaction of files for table='{}', column='{}', allFiles={}, " + "compactor='{}'",

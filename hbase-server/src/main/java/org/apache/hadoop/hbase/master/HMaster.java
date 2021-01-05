@@ -3390,13 +3390,13 @@ public class HMaster extends HRegionServer implements MasterServices {
 
   /**
    * Requests mob compaction.
-   * @param tableName The table the compact.
-   * @param columns   The compacted columns.
-   * @param allFiles  Whether add all mob files into the compaction.
+   * @param td       The descriptor of the table to compact.
+   * @param columns  The compacted columns.
+   * @param allFiles Whether add all mob files into the compaction.
    */
-  public void requestMobCompaction(TableName tableName, List<ColumnFamilyDescriptor> columns,
+  public void requestMobCompaction(TableDescriptor td, List<ColumnFamilyDescriptor> columns,
     boolean allFiles) throws IOException {
-    mobCompactThread.requestMobCompaction(conf, getFileSystem(), tableName, columns, allFiles);
+    mobCompactThread.requestMobCompaction(conf, getFileSystem(), td, columns, allFiles);
   }
 
   /**

@@ -47,11 +47,13 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValue.Type;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.MobCompactPartitionPolicy;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
@@ -62,7 +64,6 @@ import org.apache.hadoop.hbase.mob.compactions.MobCompactionRequest.CompactionTy
 import org.apache.hadoop.hbase.mob.compactions.PartitionedMobCompactionRequest.CompactionDelPartition;
 import org.apache.hadoop.hbase.mob.compactions.PartitionedMobCompactionRequest.CompactionPartition;
 import org.apache.hadoop.hbase.regionserver.BloomType;
-import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.HStoreFile;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
 import org.apache.hadoop.hbase.regionserver.ScanInfo;
@@ -376,7 +377,8 @@ public class TestPartitionedMobCompactor {
       listFiles();
 
       TableName tName = TableName.valueOf(tableName);
-      MobCompactor compactor = new PartitionedMobCompactor(conf, faultyFs, tName, hcd, pool);
+      MobCompactor compactor =
+        new PartitionedMobCompactor(conf, faultyFs, new HTableDescriptor(tName), hcd, pool);
       faultyFs.setThrowException(true);
       try {
         compactor.compact(allFiles, true);
@@ -479,28 +481,28 @@ public class TestPartitionedMobCompactor {
 
     listFiles();
 
-    PartitionedMobCompactor compactor =
-      new PartitionedMobCompactor(conf, fs, TableName.valueOf(tableName), hcd, pool) {
-        @Override
-        public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
-          throws IOException {
-          if (files == null || files.isEmpty()) {
-            return null;
-          }
-
-          PartitionedMobCompactionRequest request = select(files, isForceAllFiles);
-
-          // Make sure that there is no del Partitions
-          assertTrue(request.getDelPartitions().size() == 0);
-
-          // Make sure that when there is no startKey/endKey for partition.
-          for (CompactionPartition p : request.getCompactionPartitions()) {
-            assertTrue(p.getStartKey() == null);
-            assertTrue(p.getEndKey() == null);
-          }
+    HTableDescriptor td = new HTableDescriptor(TableName.valueOf(tableName));
+    PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs, td, hcd, pool) {
+      @Override
+      public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
+        throws IOException {
+        if (files == null || files.isEmpty()) {
           return null;
         }
-      };
+
+        PartitionedMobCompactionRequest request = select(files, isForceAllFiles);
+
+        // Make sure that there is no del Partitions
+        assertTrue(request.getDelPartitions().size() == 0);
+
+        // Make sure that when there is no startKey/endKey for partition.
+        for (CompactionPartition p : request.getCompactionPartitions()) {
+          assertTrue(p.getStartKey() == null);
+          assertTrue(p.getEndKey() == null);
+        }
+        return null;
+      }
+    };
 
     compactor.compact(allFiles, true);
   }
@@ -510,10 +512,10 @@ public class TestPartitionedMobCompactor {
     int PartitionsIncludeDelFiles = 0;
     CacheConfig cacheConfig = null;
 
-    MyPartitionedMobCompactor(Configuration conf, FileSystem fs, TableName tableName,
+    MyPartitionedMobCompactor(Configuration conf, FileSystem fs, TableDescriptor td,
       ColumnFamilyDescriptor column, ExecutorService pool, final int delPartitionSize,
       final CacheConfig cacheConf, final int PartitionsIncludeDelFiles) throws IOException {
-      super(conf, fs, tableName, column, pool);
+      super(conf, fs, td, column, pool);
       this.delPartitionSize = delPartitionSize;
       this.cacheConfig = cacheConf;
       this.PartitionsIncludeDelFiles = PartitionsIncludeDelFiles;
@@ -614,8 +616,9 @@ public class TestPartitionedMobCompactor {
 
     listFiles();
 
-    MyPartitionedMobCompactor compactor = new MyPartitionedMobCompactor(conf, fs,
-      TableName.valueOf(tableName), hcd, pool, 1, cacheConf, 1);
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(tableName));
+    MyPartitionedMobCompactor compactor =
+      new MyPartitionedMobCompactor(conf, fs, htd, hcd, pool, 1, cacheConf, 1);
 
     compactor.compact(allFiles, true);
   }
@@ -635,7 +638,7 @@ public class TestPartitionedMobCompactor {
     listFiles();
 
     MyPartitionedMobCompactor compactor = new MyPartitionedMobCompactor(conf, fs,
-      TableName.valueOf(tableName), hcd, pool, 3, cacheConf, 3);
+      new HTableDescriptor(TableName.valueOf(tableName)), hcd, pool, 3, cacheConf, 3);
     compactor.compact(allFiles, true);
   }
 
@@ -665,69 +668,69 @@ public class TestPartitionedMobCompactor {
    */
   private void testSelectFiles(String tableName, final CompactionType type,
     final boolean isForceAllFiles, final List<String> expected) throws IOException {
-    PartitionedMobCompactor compactor =
-      new PartitionedMobCompactor(conf, fs, TableName.valueOf(tableName), hcd, pool) {
-        @Override
-        public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
-          throws IOException {
-          if (files == null || files.isEmpty()) {
-            return null;
+    HTableDescriptor td = new HTableDescriptor(TableName.valueOf(tableName));
+    PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs, td, hcd, pool) {
+      @Override
+      public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
+        throws IOException {
+        if (files == null || files.isEmpty()) {
+          return null;
+        }
+        PartitionedMobCompactionRequest request = select(files, isForceAllFiles);
+
+        // Make sure that when there is no del files, there will be no startKey/endKey for
+        // partition.
+        if (request.getDelPartitions().size() == 0) {
+          for (CompactionPartition p : request.getCompactionPartitions()) {
+            assertTrue(p.getStartKey() == null);
+            assertTrue(p.getEndKey() == null);
           }
-          PartitionedMobCompactionRequest request = select(files, isForceAllFiles);
+        }
 
-          // Make sure that when there is no del files, there will be no startKey/endKey for
-          // partition.
-          if (request.getDelPartitions().size() == 0) {
-            for (CompactionPartition p : request.getCompactionPartitions()) {
-              assertTrue(p.getStartKey() == null);
-              assertTrue(p.getEndKey() == null);
-            }
+        // Make sure that CompactionDelPartitions does not overlap
+        CompactionDelPartition prevDelP = null;
+        for (CompactionDelPartition delP : request.getDelPartitions()) {
+          assertTrue(Bytes.compareTo(delP.getId().getStartKey(), delP.getId().getEndKey()) <= 0);
+
+          if (prevDelP != null) {
+            assertTrue(
+              Bytes.compareTo(prevDelP.getId().getEndKey(), delP.getId().getStartKey()) < 0);
           }
+        }
 
-          // Make sure that CompactionDelPartitions does not overlap
-          CompactionDelPartition prevDelP = null;
-          for (CompactionDelPartition delP : request.getDelPartitions()) {
-            assertTrue(Bytes.compareTo(delP.getId().getStartKey(), delP.getId().getEndKey()) <= 0);
-
-            if (prevDelP != null) {
-              assertTrue(
-                Bytes.compareTo(prevDelP.getId().getEndKey(), delP.getId().getStartKey()) < 0);
-            }
-          }
-
-          // Make sure that only del files within key range for a partition is included in
-          // compaction.
-          // compact the mob files by partitions in parallel.
-          for (CompactionPartition partition : request.getCompactionPartitions()) {
-            List<HStoreFile> delFiles =
-              getListOfDelFilesForPartition(partition, request.getDelPartitions());
-            if (!request.getDelPartitions().isEmpty()) {
-              if (
-                !((Bytes.compareTo(request.getDelPartitions().get(0).getId().getStartKey(),
-                  partition.getEndKey()) > 0)
-                  || (Bytes.compareTo(request.getDelPartitions()
-                    .get(request.getDelPartitions().size() - 1).getId().getEndKey(),
-                    partition.getStartKey()) < 0))
-              ) {
-                if (delFiles.size() > 0) {
-                  assertTrue(Bytes.compareTo(partition.getStartKey(),
-                    delFiles.get(0).getFirstKey().get().getRowArray()) >= 0);
-                  assertTrue(Bytes.compareTo(partition.getEndKey(),
-                    delFiles.get(delFiles.size() - 1).getLastKey().get().getRowArray()) <= 0);
-                }
+        // Make sure that only del files within key range for a partition is included in
+        // compaction.
+        // compact the mob files by partitions in parallel.
+        for (CompactionPartition partition : request.getCompactionPartitions()) {
+          List<HStoreFile> delFiles =
+            getListOfDelFilesForPartition(partition, request.getDelPartitions());
+          if (!request.getDelPartitions().isEmpty()) {
+            if (
+              !((Bytes.compareTo(request.getDelPartitions().get(0).getId().getStartKey(),
+                partition.getEndKey()) > 0)
+                || (Bytes.compareTo(request.getDelPartitions()
+                  .get(request.getDelPartitions().size() - 1).getId().getEndKey(),
+                  partition.getStartKey()) < 0))
+            ) {
+              if (delFiles.size() > 0) {
+                assertTrue(Bytes.compareTo(partition.getStartKey(),
+                  delFiles.get(0).getFirstKey().get().getRowArray()) >= 0);
+                assertTrue(Bytes.compareTo(partition.getEndKey(),
+                  delFiles.get(delFiles.size() - 1).getLastKey().get().getRowArray()) <= 0);
               }
             }
           }
-
-          // assert the compaction type
-          assertEquals(type, request.type);
-          // assert get the right partitions
-          compareCompactedPartitions(expected, request.compactionPartitions);
-          // assert get the right del files
-          compareDelFiles(request.getDelPartitions());
-          return null;
         }
-      };
+
+        // assert the compaction type
+        assertEquals(type, request.type);
+        // assert get the right partitions
+        compareCompactedPartitions(expected, request.compactionPartitions);
+        // assert get the right del files
+        compareDelFiles(request.getDelPartitions());
+        return null;
+      }
+    };
     compactor.compact(allFiles, isForceAllFiles);
   }
 
@@ -740,24 +743,24 @@ public class TestPartitionedMobCompactor {
    */
   private void testCompactDelFiles(String tableName, final int expectedFileCount,
     final int expectedCellCount, boolean isForceAllFiles) throws IOException {
-    PartitionedMobCompactor compactor =
-      new PartitionedMobCompactor(conf, fs, TableName.valueOf(tableName), hcd, pool) {
-        @Override
-        protected List<Path> performCompaction(PartitionedMobCompactionRequest request)
-          throws IOException {
-          List<Path> delFilePaths = new ArrayList<>();
-          for (CompactionDelPartition delPartition : request.getDelPartitions()) {
-            for (Path p : delPartition.listDelFiles()) {
-              delFilePaths.add(p);
-            }
+    HTableDescriptor td = new HTableDescriptor(TableName.valueOf(tableName));
+    PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs, td, hcd, pool) {
+      @Override
+      protected List<Path> performCompaction(PartitionedMobCompactionRequest request)
+        throws IOException {
+        List<Path> delFilePaths = new ArrayList<>();
+        for (CompactionDelPartition delPartition : request.getDelPartitions()) {
+          for (Path p : delPartition.listDelFiles()) {
+            delFilePaths.add(p);
           }
-          List<Path> newDelPaths = compactDelFiles(request, delFilePaths);
-          // assert the del files are merged.
-          assertEquals(expectedFileCount, newDelPaths.size());
-          assertEquals(expectedCellCount, countDelCellsInDelFiles(newDelPaths));
-          return null;
         }
-      };
+        List<Path> newDelPaths = compactDelFiles(request, delFilePaths);
+        // assert the del files are merged.
+        assertEquals(expectedFileCount, newDelPaths.size());
+        assertEquals(expectedCellCount, countDelCellsInDelFiles(newDelPaths));
+        return null;
+      }
+    };
     compactor.compact(allFiles, isForceAllFiles);
   }
 
@@ -885,10 +888,8 @@ public class TestPartitionedMobCompactor {
     }
     List<KeyValueScanner> scanners = new ArrayList<>(StoreFileScanner.getScannersForStoreFiles(sfs,
       false, true, false, false, HConstants.LATEST_TIMESTAMP));
-    long timeToPurgeDeletes = Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
-    long ttl = HStore.determineTTLFromFamily(hcd);
-    ScanInfo scanInfo =
-      new ScanInfo(conf, hcd, ttl, timeToPurgeDeletes, CellComparatorImpl.COMPARATOR);
+    ScanInfo scanInfo = new ScanInfo(conf, new HTableDescriptor(TableName.valueOf("test")), hcd,
+      CellComparatorImpl.COMPARATOR);
     StoreScanner scanner = new StoreScanner(scanInfo, ScanType.COMPACT_RETAIN_DELETES, scanners);
     List<Cell> results = new ArrayList<>();
     boolean hasMore = true;

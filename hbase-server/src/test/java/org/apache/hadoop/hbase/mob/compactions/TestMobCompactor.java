@@ -319,7 +319,7 @@ public class TestMobCompactor {
       countFiles(tableName, false, family2));
 
     // do the mob file compaction
-    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName, hcd1, pool);
+    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, desc, hcd1, pool);
     compactor.compact();
 
     assertEquals("After compaction: mob rows count", regionNum * (rowNumPerRegion - delRowNum),
@@ -456,7 +456,7 @@ public class TestMobCompactor {
       countFiles(tableName, false, family2));
 
     // do the mob compaction
-    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName, hcd1, pool);
+    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, desc, hcd1, pool);
     compactor.compact();
 
     assertEquals("After first compaction: mob rows count",

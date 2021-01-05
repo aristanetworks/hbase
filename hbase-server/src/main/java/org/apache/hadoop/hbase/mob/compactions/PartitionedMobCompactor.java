@@ -56,6 +56,7 @@ import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.MobCompactPartitionPolicy;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.io.HFileLink;
 import org.apache.hadoop.hbase.io.crypto.Encryption;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
@@ -70,7 +71,6 @@ import org.apache.hadoop.hbase.mob.compactions.PartitionedMobCompactionRequest.C
 import org.apache.hadoop.hbase.mob.compactions.PartitionedMobCompactionRequest.CompactionPartition;
 import org.apache.hadoop.hbase.mob.compactions.PartitionedMobCompactionRequest.CompactionPartitionId;
 import org.apache.hadoop.hbase.regionserver.BloomType;
-import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.HStoreFile;
 import org.apache.hadoop.hbase.regionserver.ScanInfo;
 import org.apache.hadoop.hbase.regionserver.ScanType;
@@ -107,13 +107,14 @@ public class PartitionedMobCompactor extends MobCompactor {
   private final byte[] refCellTags;
   private Encryption.Context cryptoContext = Encryption.Context.NONE;
 
-  public PartitionedMobCompactor(Configuration conf, FileSystem fs, TableName tableName,
+  public PartitionedMobCompactor(Configuration conf, FileSystem fs, TableDescriptor td,
     ColumnFamilyDescriptor column, ExecutorService pool) throws IOException {
-    super(conf, fs, tableName, column, pool);
+    super(conf, fs, td, column, pool);
     mergeableSize = conf.getLong(MobConstants.MOB_COMPACTION_MERGEABLE_THRESHOLD,
       MobConstants.DEFAULT_MOB_COMPACTION_MERGEABLE_THRESHOLD);
     delFileMaxCount =
       conf.getInt(MobConstants.MOB_DELFILE_MAX_COUNT, MobConstants.DEFAULT_MOB_DELFILE_MAX_COUNT);
+    TableName tableName = td.getTableName();
     // default is 100
     compactionBatchSize = conf.getInt(MobConstants.MOB_COMPACTION_BATCH_SIZE,
       MobConstants.DEFAULT_MOB_COMPACTION_BATCH_SIZE);
@@ -306,8 +307,8 @@ public class PartitionedMobCompactor extends MobCompactor {
     LOG.info(
       "The compaction type is {}, the request has {} del files, {} selected files, and {} "
         + "irrelevant files table '{}' and column '{}'",
-      request.getCompactionType(), totalDelFiles, selectedFileCount, irrelevantFileCount, tableName,
-      column.getNameAsString());
+      request.getCompactionType(), totalDelFiles, selectedFileCount, irrelevantFileCount,
+      tableDescriptor.getTableName(), column.getNameAsString());
     return request;
   }
 
@@ -332,6 +333,8 @@ public class PartitionedMobCompactor extends MobCompactor {
       delPartition.cleanDelFiles();
       delPartition.addDelFileList(newDelPaths);
     }
+
+    final TableName tableName = tableDescriptor.getTableName();
 
     List<Path> paths = null;
     int totalDelFileCount = 0;
@@ -468,6 +471,7 @@ public class PartitionedMobCompactor extends MobCompactor {
   protected List<Path> compactMobFiles(final PartitionedMobCompactionRequest request)
     throws IOException {
     Collection<CompactionPartition> partitions = request.compactionPartitions;
+    final TableName tableName = tableDescriptor.getTableName();
     if (partitions == null || partitions.isEmpty()) {
       LOG.info("No partitions of mob files in table='{}' and column='{}'", tableName,
         column.getNameAsString());
@@ -582,7 +586,7 @@ public class PartitionedMobCompactor extends MobCompactor {
     LOG.info(
       "Compaction is finished. The number of mob files is changed from {} to {} for "
         + "partition={} for table='{}' and column='{}'",
-      files.size(), newFiles.size(), partition.getPartitionId(), tableName,
+      files.size(), newFiles.size(), partition.getPartitionId(), table.getName(),
       column.getNameAsString());
     return newFiles;
   }
@@ -635,6 +639,7 @@ public class PartitionedMobCompactor extends MobCompactor {
     boolean cleanupBulkloadDirOfPartition = false;
     boolean cleanupCommittedMobFile = false;
     boolean closeReaders = true;
+    final TableName tableName = table.getName();
 
     try {
       try {
@@ -807,7 +812,8 @@ public class PartitionedMobCompactor extends MobCompactor {
     // commit the new del file
     Path path = MobUtils.commitFile(conf, fs, filePath, mobFamilyDir, compactionCacheConfig);
     // archive the old del files
-    MobUtils.removeMobFiles(conf, fs, tableName, mobTableDir, column.getName(), delFiles);
+    MobUtils.removeMobFiles(conf, fs, tableDescriptor.getTableName(), mobTableDir, column.getName(),
+      delFiles);
     return path;
   }
 
@@ -822,8 +828,7 @@ public class PartitionedMobCompactor extends MobCompactor {
     throws IOException {
     List<StoreFileScanner> scanners = StoreFileScanner.getScannersForStoreFiles(filesToCompact,
       false, true, false, false, HConstants.LATEST_TIMESTAMP);
-    long ttl = HStore.determineTTLFromFamily(column);
-    ScanInfo scanInfo = new ScanInfo(conf, column, ttl, 0, CellComparator.getInstance());
+    ScanInfo scanInfo = new ScanInfo(conf, tableDescriptor, column, CellComparator.getInstance());
     return new StoreScanner(scanInfo, scanType, scanners);
   }
 

@@ -3412,10 +3412,11 @@ public class TestHRegion {
         return null;
       }
     }).when(mockedCPHost).preBatchMutate(Mockito.isA(MiniBatchOperationInProgress.class));
+    HTableDescriptor td = new HTableDescriptor(TableName.valueOf("testDataInMemoryWithoutWAL"));
     ColumnFamilyDescriptorBuilder builder =
       ColumnFamilyDescriptorBuilder.newBuilder(COLUMN_FAMILY_BYTES);
-    ScanInfo info = new ScanInfo(CONF, builder.build(), Long.MAX_VALUE, Long.MAX_VALUE,
-      region.getCellComparator());
+    ScanInfo info = new ScanInfo(CONF, td, builder.build(), region.getCellComparator());
+
     Mockito.when(mockedCPHost.preFlushScannerOpen(Mockito.any(HStore.class), Mockito.any()))
       .thenReturn(info);
     Mockito

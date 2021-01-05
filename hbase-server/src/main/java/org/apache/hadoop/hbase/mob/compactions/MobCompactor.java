@@ -25,8 +25,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.util.CommonFSUtils;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -39,22 +39,24 @@ public abstract class MobCompactor {
 
   protected FileSystem fs;
   protected Configuration conf;
-  protected TableName tableName;
+  protected TableDescriptor tableDescriptor;
   protected ColumnFamilyDescriptor column;
 
   protected Path mobTableDir;
   protected Path mobFamilyDir;
   protected ExecutorService pool;
 
-  public MobCompactor(Configuration conf, FileSystem fs, TableName tableName,
+  public MobCompactor(Configuration conf, FileSystem fs, TableDescriptor td,
     ColumnFamilyDescriptor column, ExecutorService pool) {
     this.conf = conf;
     this.fs = fs;
-    this.tableName = tableName;
+    this.tableDescriptor = td;
     this.column = column;
     this.pool = pool;
-    mobTableDir = CommonFSUtils.getTableDir(MobUtils.getMobHome(conf), tableName);
-    mobFamilyDir = MobUtils.getMobFamilyPath(conf, tableName, column.getNameAsString());
+    mobTableDir =
+      CommonFSUtils.getTableDir(MobUtils.getMobHome(conf), tableDescriptor.getTableName());
+    mobFamilyDir =
+      MobUtils.getMobFamilyPath(conf, tableDescriptor.getTableName(), column.getNameAsString());
   }
 
   /**

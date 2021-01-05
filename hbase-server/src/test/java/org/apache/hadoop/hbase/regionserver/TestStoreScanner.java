@@ -41,7 +41,6 @@ import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.KeyValue;
@@ -81,9 +80,9 @@ public class TestStoreScanner {
   private static final String CF_STR = "cf";
   private static final byte[] CF = Bytes.toBytes(CF_STR);
   static Configuration CONF = HBaseConfiguration.create();
-  private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-  private ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, Integer.MAX_VALUE, Long.MAX_VALUE,
-    KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+  private ScanInfo scanInfo =
+    new ScanInfo(CONF, CF, 0, Integer.MAX_VALUE, Long.MAX_VALUE, KeepDeletedCells.FALSE,
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
 
   /**
    * From here on down, we have a bunch of defines and specific CELL_GRID of Cells. The CELL_GRID
@@ -816,7 +815,7 @@ public class TestStoreScanner {
     Scan scan = new Scan();
     scan.readVersions(1);
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, 500, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
     try (StoreScanner scanner = new StoreScanner(scan, scanInfo, null, scanners)) {
       List<Cell> results = new ArrayList<>();
       assertEquals(true, scanner.next(results));
@@ -876,7 +875,7 @@ public class TestStoreScanner {
     scan.readVersions(1);
     // scanner with ttl equal to 500
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, 500, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
     try (StoreScanner scanner = new StoreScanner(scan, scanInfo, null, scanners)) {
       List<Cell> results = new ArrayList<>();
       assertEquals(true, scanner.next(results));
@@ -938,7 +937,7 @@ public class TestStoreScanner {
       ScanInfo scanInfo = new ScanInfo(CONF, Bytes.toBytes("cf"), 0 /* minVersions */,
         2 /* maxVersions */, 500 /* ttl */, KeepDeletedCells.FALSE /* keepDeletedCells */,
         HConstants.DEFAULT_BLOCKSIZE /* block size */, 200, /* timeToPurgeDeletes */
-        CellComparator.getInstance(), false);
+        CellComparator.getInstance(), false, false);
       try (StoreScanner scanner =
         new StoreScanner(scanInfo, 2, ScanType.COMPACT_DROP_DELETES, scanners)) {
         List<Cell> results = new ArrayList<>();
@@ -967,7 +966,7 @@ public class TestStoreScanner {
       create("R1", "cf", "a", now - 10, KeyValue.Type.Put, "dont-care"), };
     List<KeyValueScanner> scanners = scanFixture(kvs);
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, 500, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
     try (StoreScanner storeScanner =
       new StoreScanner(scanInfo, -1, ScanType.COMPACT_RETAIN_DELETES, scanners)) {
       assertFalse(storeScanner.isScanUsePread());
@@ -977,7 +976,7 @@ public class TestStoreScanner {
   @Test
   public void testReadVersionWithRawAndFilter() throws IOException {
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, Long.MAX_VALUE, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
     KeyValue[] kvs = new KeyValue[] { create("R1", "cf", "a", 3, KeyValue.Type.Put, "dont-care"),
       create("R1", "cf", "a", 2, KeyValue.Type.Put, "dont-care"),
       create("R1", "cf", "a", 1, KeyValue.Type.Put, "dont-care") };
@@ -1019,7 +1018,7 @@ public class TestStoreScanner {
     }
 
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, Long.MAX_VALUE, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false, false);
     InternalScan scan = new InternalScan(new Scan());
     scan.checkOnlyMemStore();
     MyCollectionBackedScanner fileScanner = new MyCollectionBackedScanner(true);

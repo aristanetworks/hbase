@@ -1798,7 +1798,8 @@ public class MasterRpcServices extends RSRpcServices implements MasterService.Bl
     }
     boolean allFiles = false;
     List<ColumnFamilyDescriptor> compactedColumns = new ArrayList<>();
-    ColumnFamilyDescriptor[] hcds = master.getTableDescriptors().get(tableName).getColumnFamilies();
+    TableDescriptor td = master.getTableDescriptors().get(tableName);
+    ColumnFamilyDescriptor[] hcds = td.getColumnFamilies();
     byte[] family = null;
     if (request.hasFamily()) {
       family = request.getFamily().toByteArray();
@@ -1831,7 +1832,7 @@ public class MasterRpcServices extends RSRpcServices implements MasterService.Bl
       LOG.trace("User-triggered mob compaction requested for table: " + tableName.getNameAsString()
         + " for column family: " + familyLogMsg);
     }
-    master.requestMobCompaction(tableName, compactedColumns, allFiles);
+    master.requestMobCompaction(td, compactedColumns, allFiles);
     return CompactRegionResponse.newBuilder().build();
   }
 

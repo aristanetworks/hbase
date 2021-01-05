@@ -168,7 +168,7 @@ public class TestDefaultMemStore {
     Configuration conf = HBaseConfiguration.create();
     ScanInfo scanInfo =
       new ScanInfo(conf, null, 0, 1, HConstants.LATEST_TIMESTAMP, KeepDeletedCells.FALSE,
-        HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false);
+        HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false, false);
     int count = 0;
     try (StoreScanner s = new StoreScanner(scan, scanInfo, null, memstorescanners)) {
       while (s.next(result)) {
@@ -589,7 +589,7 @@ public class TestDefaultMemStore {
     for (int startRowId = 0; startRowId < ROW_COUNT; startRowId++) {
       ScanInfo scanInfo =
         new ScanInfo(conf, FAMILY, 0, 1, Integer.MAX_VALUE, KeepDeletedCells.FALSE,
-          HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false);
+          HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false, false);
       try (InternalScanner scanner =
         new StoreScanner(new Scan().withStartRow(Bytes.toBytes(startRowId)), scanInfo, null,
           memstore.getScanners(0))) {

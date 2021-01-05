@@ -273,6 +273,12 @@ public interface TableDescriptor {
   long getNormalizerTargetRegionSize();
 
   /**
+   * Check if table handles timestamps with nanoseconds precision.
+   * @return true if table uses nanosecond precision for timestamps.
+   */
+  boolean isNanosecondTimestamps();
+
+  /**
    * Check if the readOnly flag of the table is set. If the readOnly flag is set then the contents
    * of the table can only be read from but not modified.
    * @return true if all columns in the table should be read only

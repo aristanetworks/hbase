@@ -240,7 +240,7 @@ public class TestCompactingMemStore extends TestDefaultMemStore {
     for (int startRowId = 0; startRowId < ROW_COUNT; startRowId++) {
       ScanInfo scanInfo =
         new ScanInfo(conf, FAMILY, 0, 1, Integer.MAX_VALUE, KeepDeletedCells.FALSE,
-          HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false);
+          HConstants.DEFAULT_BLOCKSIZE, 0, this.memstore.getComparator(), false, false);
       try (InternalScanner scanner =
         new StoreScanner(new Scan().withStartRow(Bytes.toBytes(startRowId)), scanInfo, null,
           memstore.getScanners(0))) {

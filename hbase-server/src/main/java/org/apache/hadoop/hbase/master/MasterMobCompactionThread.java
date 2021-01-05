@@ -26,8 +26,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.master.locking.LockManager;
 import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.procedure2.LockType;
@@ -65,22 +65,21 @@ public class MasterMobCompactionThread {
 
   /**
    * Requests mob compaction
-   * @param conf      The Configuration
-   * @param fs        The file system
-   * @param tableName The table the compact
-   * @param columns   The column descriptors
-   * @param allFiles  Whether add all mob files into the compaction.
+   * @param conf     The Configuration
+   * @param fs       The file system
+   * @param td       The descriptor of the table to compact
+   * @param columns  The column descriptors
+   * @param allFiles Whether add all mob files into the compaction.
    */
-  public void requestMobCompaction(Configuration conf, FileSystem fs, TableName tableName,
+  public void requestMobCompaction(Configuration conf, FileSystem fs, TableDescriptor td,
     List<ColumnFamilyDescriptor> columns, boolean allFiles) throws IOException {
-    master.reportMobCompactionStart(tableName);
+    master.reportMobCompactionStart(td.getTableName());
     try {
-      masterMobPool
-        .execute(new CompactionRunner(fs, tableName, columns, allFiles, mobCompactorPool));
+      masterMobPool.execute(new CompactionRunner(fs, td, columns, allFiles, mobCompactorPool));
     } catch (RejectedExecutionException e) {
       // in case the request is rejected by the pool
       try {
-        master.reportMobCompactionEnd(tableName);
+        master.reportMobCompactionEnd(td.getTableName());
       } catch (IOException e1) {
         LOG.error("Failed to mark end of mob compaction", e1);
       }
@@ -88,22 +87,22 @@ public class MasterMobCompactionThread {
     }
     if (LOG.isDebugEnabled()) {
       LOG.debug("The mob compaction is requested for the columns " + columns + " of the table "
-        + tableName.getNameAsString());
+        + td.getTableName().getNameAsString());
     }
   }
 
   private class CompactionRunner implements Runnable {
     private FileSystem fs;
-    private TableName tableName;
+    private TableDescriptor tableDescriptor;
     private List<ColumnFamilyDescriptor> hcds;
     private boolean allFiles;
     private ExecutorService pool;
 
-    public CompactionRunner(FileSystem fs, TableName tableName, List<ColumnFamilyDescriptor> hcds,
+    public CompactionRunner(FileSystem fs, TableDescriptor td, List<ColumnFamilyDescriptor> hcds,
       boolean allFiles, ExecutorService pool) {
       super();
       this.fs = fs;
-      this.tableName = tableName;
+      this.tableDescriptor = td;
       this.hcds = hcds;
       this.allFiles = allFiles;
       this.pool = pool;
@@ -112,18 +111,18 @@ public class MasterMobCompactionThread {
     @Override
     public void run() {
       // These locks are on dummy table names, and only used for compaction/mob file cleaning.
-      final LockManager.MasterLock lock =
-        master.getLockManager().createMasterLock(MobUtils.getTableLockName(tableName),
-          LockType.EXCLUSIVE, this.getClass().getName() + ": mob compaction");
+      final LockManager.MasterLock lock = master.getLockManager().createMasterLock(
+        MobUtils.getTableLockName(tableDescriptor.getTableName()), LockType.EXCLUSIVE,
+        this.getClass().getName() + ": mob compaction");
       try {
         for (ColumnFamilyDescriptor hcd : hcds) {
-          MobUtils.doMobCompaction(conf, fs, tableName, hcd, pool, allFiles, lock);
+          MobUtils.doMobCompaction(conf, fs, tableDescriptor, hcd, pool, allFiles, lock);
         }
       } catch (IOException e) {
         LOG.error("Failed to perform the mob compaction", e);
       } finally {
         try {
-          master.reportMobCompactionEnd(tableName);
+          master.reportMobCompactionEnd(tableDescriptor.getTableName());
         } catch (IOException e) {
           LOG.error("Failed to mark end of mob compaction", e);
         }
