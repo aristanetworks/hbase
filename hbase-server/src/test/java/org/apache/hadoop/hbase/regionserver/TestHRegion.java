@@ -3403,10 +3403,10 @@ public class TestHRegion {
         return null;
       }
     }).when(mockedCPHost).preBatchMutate(isA(MiniBatchOperationInProgress.class));
+    HTableDescriptor td = new HTableDescriptor(TableName.valueOf("testDataInMemoryWithoutWAL"));
     ColumnFamilyDescriptorBuilder builder =
       ColumnFamilyDescriptorBuilder.newBuilder(COLUMN_FAMILY_BYTES);
-    ScanInfo info = new ScanInfo(CONF, builder.build(), Long.MAX_VALUE, Long.MAX_VALUE,
-      region.getCellComparator());
+    ScanInfo info = new ScanInfo(CONF, td, builder.build(), region.getCellComparator());
     when(mockedCPHost.preFlushScannerOpen(any(HStore.class), any())).thenReturn(info);
 
     when(mockedCPHost.preFlush(any(), any(StoreScanner.class), any()))

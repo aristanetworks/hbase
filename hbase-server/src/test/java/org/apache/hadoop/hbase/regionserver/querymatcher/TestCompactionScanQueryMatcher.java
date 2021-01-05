@@ -150,7 +150,7 @@ public class TestCompactionScanQueryMatcher extends AbstractTestScanQueryMatcher
     Type[] types, MatchCode... expected) throws IOException {
     long now = EnvironmentEdgeManager.currentTime();
     ScanInfo scanInfo = new ScanInfo(this.conf, fam1, 0, 1, ttl, keepDeletedCells,
-      HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false);
+      HConstants.DEFAULT_BLOCKSIZE, 0, rowComparator, false, false);
     CompactionScanQueryMatcher qm =
       CompactionScanQueryMatcher.create(scanInfo, ScanType.COMPACT_RETAIN_DELETES, 0L,
         HConstants.OLDEST_TIMESTAMP, HConstants.OLDEST_TIMESTAMP, now, null, null, null);
@@ -190,7 +190,7 @@ public class TestCompactionScanQueryMatcher extends AbstractTestScanQueryMatcher
     long now = EnvironmentEdgeManager.currentTime();
     // Set time to purge deletes to negative value to avoid it ever happening.
     ScanInfo scanInfo = new ScanInfo(this.conf, fam2, 0, 1, ttl, KeepDeletedCells.FALSE,
-      HConstants.DEFAULT_BLOCKSIZE, -1L, rowComparator, false);
+      HConstants.DEFAULT_BLOCKSIZE, -1L, rowComparator, false, false);
 
     CompactionScanQueryMatcher qm =
       CompactionScanQueryMatcher.create(scanInfo, ScanType.COMPACT_RETAIN_DELETES, Long.MAX_VALUE,

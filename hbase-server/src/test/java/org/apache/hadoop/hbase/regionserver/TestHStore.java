@@ -1155,8 +1155,9 @@ public class TestHStore {
         LOG.info(">>>> creating scanner");
         return this.store.createScanner(scan,
           new ScanInfo(HBaseConfiguration.create(),
+            TEST_UTIL.createTableDescriptor(TableName.valueOf(name)),
             ColumnFamilyDescriptorBuilder.newBuilder(family).setMaxVersions(4).build(),
-            Long.MAX_VALUE, 0, CellComparator.getInstance()),
+            CellComparator.getInstance()),
           scan.getFamilyMap().get(store.getColumnFamilyDescriptor().getName()), 0);
       } catch (IOException e) {
         e.printStackTrace();

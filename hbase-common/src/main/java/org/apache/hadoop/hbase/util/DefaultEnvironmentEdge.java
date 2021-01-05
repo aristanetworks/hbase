@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hbase.util;
 
+import java.time.Instant;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
@@ -33,5 +34,17 @@ public class DefaultEnvironmentEdge implements EnvironmentEdge {
   @Override
   public long currentTime() {
     return System.currentTimeMillis();
+  }
+
+  /**
+   * {@inheritDoc}
+   * <p>
+   * This implementation returns current time in nanoseconds via {@link java.time.Instant#now()}
+   * </p>
+   */
+  @Override
+  public long currentTimeNano() {
+    Instant now = Instant.now();
+    return now.getEpochSecond() * 1000000000 + now.getNano();
   }
 }

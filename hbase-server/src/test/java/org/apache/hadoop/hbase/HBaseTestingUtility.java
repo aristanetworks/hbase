@@ -829,6 +829,19 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   }
 
   /**
+   * Check whether the tests should assume NANOSECOND_TIMESTAMPS when creating new column tables.
+   * Default is false.
+   */
+  public boolean isNanosecondTimestampsEnabled() {
+    final String propName = "hbase.tests.nanosecond.timestamps";
+    String v = System.getProperty(propName);
+    if (v != null) {
+      return Boolean.parseBoolean(v);
+    }
+    return false;
+  }
+
+  /**
    * Check whether the tests should assume NEW_VERSION_BEHAVIOR when creating new column families.
    * Default to false.
    */
@@ -1706,7 +1719,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
       }
       builder.setColumnFamily(cfdb.build());
     }
-    TableDescriptor td = builder.build();
+    TableDescriptor td = builder.setNanosecondTimestamps(isNanosecondTimestampsEnabled()).build();
     getAdmin().createTable(td, splitKeys);
     // HBaseAdmin only waits for regions to appear in hbase:meta
     // we should wait until they are assigned
@@ -1728,7 +1741,8 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
           ColumnFamilyDescriptorBuilder.newBuilder(family).setNewVersionBehavior(true).build());
       }
     }
-    getAdmin().createTable(builder.build(), splitRows);
+    getAdmin().createTable(builder.setNanosecondTimestamps(isNanosecondTimestampsEnabled()).build(),
+      splitRows);
     // HBaseAdmin only waits for regions to appear in hbase:meta
     // we should wait until they are assigned
     waitUntilAllRegionsAssigned(htd.getTableName());
@@ -1775,6 +1789,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public Table createTable(TableName tableName, byte[][] families, int numVersions,
     byte[][] splitKeys) throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     for (byte[] family : families) {
       HColumnDescriptor hcd = new HColumnDescriptor(family).setMaxVersions(numVersions);
       if (isNewVersionBehaviorEnabled()) {
@@ -1805,6 +1820,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public Table createTable(TableName tableName, byte[][] families, int numVersions, int blockSize)
     throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     for (byte[] family : families) {
       HColumnDescriptor hcd =
         new HColumnDescriptor(family).setMaxVersions(numVersions).setBlocksize(blockSize);
@@ -1823,6 +1839,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public Table createTable(TableName tableName, byte[][] families, int numVersions, int blockSize,
     String cpName) throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     for (byte[] family : families) {
       HColumnDescriptor hcd =
         new HColumnDescriptor(family).setMaxVersions(numVersions).setBlocksize(blockSize);
@@ -1848,6 +1865,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public Table createTable(TableName tableName, byte[][] families, int[] numVersions)
     throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     int i = 0;
     for (byte[] family : families) {
       HColumnDescriptor hcd = new HColumnDescriptor(family).setMaxVersions(numVersions[i]);
@@ -1871,6 +1889,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public Table createTable(TableName tableName, byte[] family, byte[][] splitRows)
     throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     HColumnDescriptor hcd = new HColumnDescriptor(family);
     if (isNewVersionBehaviorEnabled()) {
       hcd.setNewVersionBehavior(true);
@@ -2035,6 +2054,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public HTableDescriptor createTableDescriptor(final TableName name, final int minVersions,
     final int versions, final int ttl, KeepDeletedCells keepDeleted) {
     HTableDescriptor htd = new HTableDescriptor(name);
+    htd.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     for (byte[] cfName : new byte[][] { fam1, fam2, fam3 }) {
       HColumnDescriptor hcd =
         new HColumnDescriptor(cfName).setMinVersions(minVersions).setMaxVersions(versions)
@@ -2064,6 +2084,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public HTableDescriptor createTableDescriptor(final TableName tableName, byte[][] families,
     int maxVersions) {
     HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.setNanosecondTimestamps(isNanosecondTimestampsEnabled());
     for (byte[] family : families) {
       HColumnDescriptor hcd = new HColumnDescriptor(family).setMaxVersions(maxVersions);
       if (isNewVersionBehaviorEnabled()) {
