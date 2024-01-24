@@ -119,25 +119,45 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
       return false;
     }
 
+    // When selecting file for compaction, we compare two type of information against the current
+    // time: the file modification (always in ms) and the cell timestamp (in ms or ns). In order to
+    // make it easier to understand, especially with the configuration being all in ms, we will
+    // convert everything in ms.
+    //
+    // TODO(thibault@): see if the nanoseconds patch can be improved to hide the nanoseconds
+    // internally.
+    long nowMs = EnvironmentEdgeManager.currentTime();
+
     // TODO: Use better method for determining stamp of last major (HBASE-2990)
-    long lowTimestamp = StoreUtils.getLowestTimestamp(filesToCompact);
-    long now = EnvironmentEdgeManager.currentTime();
-    if (lowTimestamp <= 0L || lowTimestamp >= (now - mcTime)) {
+    long lowTimestampMs = StoreUtils.getLowestTimestamp(filesToCompact);
+    if (lowTimestampMs <= 0L || lowTimestampMs >= (nowMs - mcTime)) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("lowTimestamp: " + lowTimestamp + " lowTimestamp: " + lowTimestamp + " now: "
-          + now + " mcTime: " + mcTime);
+        LOG.debug("lowTimestamp: " + lowTimestampMs + " now: " + nowMs + " mcTime: " + mcTime);
       }
       return false;
     }
 
+    // cfTTL can be ns or ms depending on the table configuration, but the boundaries are always in
+    // ms to keep it in line with the configuration; therefore here we convert back the cfTTL to
+    // be always in ms.
     long cfTTL = this.storeConfigInfo.getStoreFileTtl();
+    if (cfTTL != Long.MAX_VALUE && storeConfigInfo.isNanosecondTimestamps()) {
+      cfTTL = cfTTL / 1000000L; // convert back to ms
+    }
     HDFSBlocksDistribution hdfsBlocksDistribution = new HDFSBlocksDistribution();
-    List<Long> boundaries = getCompactBoundariesForMajor(filesToCompact, now);
+    List<Long> boundaries = getCompactBoundariesForMajor(filesToCompact, nowMs);
     boolean[] filesInWindow = new boolean[boundaries.size()];
 
     for (HStoreFile file : filesToCompact) {
       OptionalLong minTimestamp = file.getMinimumTimestamp();
-      long oldest = minTimestamp.isPresent() ? now - minTimestamp.getAsLong() : Long.MIN_VALUE;
+      long oldest = Long.MIN_VALUE;
+      if (minTimestamp.isPresent()) {
+        long minTs = minTimestamp.getAsLong();
+        if (storeConfigInfo.isNanosecondTimestamps()) {
+          minTs = minTs / 1000000L; // convert back to ms
+        }
+        oldest = nowMs - minTs;
+      }
       if (cfTTL != Long.MAX_VALUE && oldest >= cfTTL) {
         LOG.debug("Major compaction triggered on store " + this + "; for TTL maintenance");
         return true;
@@ -145,7 +165,7 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
       if (!file.isMajorCompactionResult() || file.isBulkLoadResult()) {
         LOG.debug("Major compaction triggered on store " + this
           + ", because there are new files and time since last major compaction "
-          + (now - lowTimestamp) + "ms");
+          + (nowMs - lowTimestampMs) + "ms");
         return true;
       }
 
@@ -197,9 +217,9 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
   }
 
   public CompactionRequestImpl selectMajorCompaction(ArrayList<HStoreFile> candidateSelection) {
-    long now = EnvironmentEdgeManager.currentTime();
-    List<Long> boundaries = getCompactBoundariesForMajor(candidateSelection, now);
-    Map<Long, String> boundariesPolicies = getBoundariesStoragePolicyForMajor(boundaries, now);
+    long nowMs = EnvironmentEdgeManager.currentTime();
+    List<Long> boundaries = getCompactBoundariesForMajor(candidateSelection, nowMs);
+    Map<Long, String> boundariesPolicies = getBoundariesStoragePolicyForMajor(boundaries, nowMs);
     return new DateTieredCompactionRequest(candidateSelection, boundaries, boundariesPolicies);
   }
 
@@ -213,22 +233,25 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
    */
   public CompactionRequestImpl selectMinorCompaction(ArrayList<HStoreFile> candidateSelection,
     boolean mayUseOffPeak, boolean mayBeStuck) throws IOException {
-    long now = EnvironmentEdgeManager.currentTime();
-    long oldestToCompact = getOldestToCompact(comConf.getDateTieredMaxStoreFileAgeMillis(), now);
+    long nowMs = EnvironmentEdgeManager.currentTime();
+    long oldestToCompact = getOldestToCompact(comConf.getDateTieredMaxStoreFileAgeMillis(), nowMs);
 
     List<Pair<HStoreFile, Long>> storefileMaxTimestampPairs =
       Lists.newArrayListWithCapacity(candidateSelection.size());
     long maxTimestampSeen = Long.MIN_VALUE;
     for (HStoreFile storeFile : candidateSelection) {
+      long maxTs = storeFile.getMaximumTimestamp().orElse(Long.MIN_VALUE);
+      if (maxTs != Long.MIN_VALUE && storeConfigInfo.isNanosecondTimestamps()) {
+        maxTs = maxTs / 1000000L; // convert back to ms
+      }
       // if there is out-of-order data,
       // we put them in the same window as the last file in increasing order
-      maxTimestampSeen =
-        Math.max(maxTimestampSeen, storeFile.getMaximumTimestamp().orElse(Long.MIN_VALUE));
+      maxTimestampSeen = Math.max(maxTimestampSeen, maxTs);
       storefileMaxTimestampPairs.add(new Pair<>(storeFile, maxTimestampSeen));
     }
     Collections.reverse(storefileMaxTimestampPairs);
 
-    CompactionWindow window = getIncomingWindow(now);
+    CompactionWindow window = getIncomingWindow(nowMs);
     int minThreshold = comConf.getDateTieredIncomingWindowMin();
     PeekingIterator<Pair<HStoreFile, Long>> it =
       Iterators.peekingIterator(storefileMaxTimestampPairs.iterator());
@@ -254,7 +277,7 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
             LOG.debug("Processing files: " + fileList + " for window: " + window);
           }
           DateTieredCompactionRequest request = generateCompactionRequest(fileList, window,
-            mayUseOffPeak, mayBeStuck, minThreshold, now);
+            mayUseOffPeak, mayBeStuck, minThreshold, nowMs);
           if (request != null) {
             return request;
           }
@@ -298,7 +321,16 @@ public class DateTieredCompactionPolicy extends SortedCompactionPolicy {
    */
   private List<Long> getCompactBoundariesForMajor(Collection<HStoreFile> filesToCompact, long now) {
     long minTimestamp = filesToCompact.stream()
-      .mapToLong(f -> f.getMinimumTimestamp().orElse(Long.MAX_VALUE)).min().orElse(Long.MAX_VALUE);
+      .mapToLong(f -> {
+        OptionalLong ts = f.getMinimumTimestamp();
+        // We want to keep the boundaries in ms, to make things easier to reason about, so
+        // here we convert the minimum timestamp seen in the HStoreFile to ms if the table is
+        // using nanoseconds.
+        if (ts.isPresent() && storeConfigInfo.isNanosecondTimestamps()) {
+          ts = OptionalLong.of(ts.getAsLong() / 1000000L);
+        }
+        return ts.orElse(Long.MAX_VALUE);
+      }).min().orElse(Long.MAX_VALUE);
 
     List<Long> boundaries = new ArrayList<>();
 

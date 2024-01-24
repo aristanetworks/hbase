@@ -52,4 +52,6 @@ public interface StoreConfigInformation {
   RegionInfo getRegionInfo();
 
   String getColumnFamilyName();
+
+  boolean isNanosecondTimestamps();
 }

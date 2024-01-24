@@ -400,6 +400,10 @@ public class HStore
     return this.storeContext.getFamily().getNameAsString();
   }
 
+  @Override public boolean isNanosecondTimestamps() {
+    return region.getTableDescriptor().isNanosecondTimestamps();
+  }
+
   @Override
   public TableName getTableName() {
     return this.getRegionInfo().getTable();
