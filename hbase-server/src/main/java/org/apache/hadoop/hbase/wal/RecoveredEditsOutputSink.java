@@ -89,12 +89,9 @@ class RecoveredEditsOutputSink extends AbstractRecoveredEditsOutputSink {
 
   @Override
   public List<Path> close() throws IOException {
-    boolean isSuccessful = true;
-    try {
-      isSuccessful = finishWriterThreads();
-    } finally {
-      isSuccessful &= closeWriters();
-    }
+    boolean isSuccessful;
+    isSuccessful = finishWriterThreads();
+    isSuccessful &= closeWriters();
     return isSuccessful ? splits : null;
   }
 
