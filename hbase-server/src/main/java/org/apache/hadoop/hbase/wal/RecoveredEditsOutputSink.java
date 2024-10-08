@@ -99,7 +99,7 @@ class RecoveredEditsOutputSink extends AbstractRecoveredEditsOutputSink {
    * Close all of the output streams.
    * @return true when there is no error.
    */
-  private boolean closeWriters() throws IOException {
+  boolean closeWriters() throws IOException {
     List<IOException> thrown = Lists.newArrayList();
     for (RecoveredEditsWriter writer : writers.values()) {
       closeCompletionService.submit(() -> {
