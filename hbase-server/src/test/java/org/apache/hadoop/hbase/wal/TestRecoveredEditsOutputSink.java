@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.wal;
 
 import static org.junit.Assert.assertThrows;
+
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import org.apache.hadoop.conf.Configuration;
@@ -35,12 +36,12 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
 
-@Category({RegionServerTests.class, SmallTests.class})
+@Category({ RegionServerTests.class, SmallTests.class })
 public class TestRecoveredEditsOutputSink {
 
   @ClassRule
-  public static final HBaseClassTestRule CLASS_RULE = HBaseClassTestRule.forClass(
-    TestRecoveredEditsOutputSink.class);
+  public static final HBaseClassTestRule CLASS_RULE =
+    HBaseClassTestRule.forClass(TestRecoveredEditsOutputSink.class);
 
   private static WALFactory wals;
   private static FileSystem fs;
@@ -59,8 +60,7 @@ public class TestRecoveredEditsOutputSink {
     WALSplitter splitter = new WALSplitter(wals, conf, rootDir, fs, rootDir, fs);
     WALSplitter.PipelineController pipelineController = new WALSplitter.PipelineController();
     EntryBuffers sink = new EntryBuffers(pipelineController, 1024 * 1024);
-    outputSink =
-      new RecoveredEditsOutputSink(splitter, pipelineController, sink, 3);
+    outputSink = new RecoveredEditsOutputSink(splitter, pipelineController, sink, 3);
   }
 
   @AfterClass
@@ -81,9 +81,8 @@ public class TestRecoveredEditsOutputSink {
   /**
    * When a WAL split is interrupted (ex. by a RegionServer abort), the thread join in
    * finishWriterThreads() will get interrupted, rethrowing the exception without stopping the
-   * writer threads. Test to ensure that when this happens, RecoveredEditsOutputSink.close()
-   * does not execute closeWriters() as this can cause corruption.
-   * Please see HBASE-28569
+   * writer threads. Test to ensure that when this happens, RecoveredEditsOutputSink.close() does
+   * not execute closeWriters() as this can cause corruption. Please see HBASE-28569
    */
   @Test
   public void testCloseWALSplitInterrupted() throws IOException {
