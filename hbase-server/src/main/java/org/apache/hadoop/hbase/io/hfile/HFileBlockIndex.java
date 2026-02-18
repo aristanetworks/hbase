@@ -91,6 +91,13 @@ public class HFileBlockIndex {
   static final int SECONDARY_INDEX_ENTRY_OVERHEAD = Bytes.SIZEOF_INT + Bytes.SIZEOF_LONG;
 
   /**
+   * Like {@link #SECONDARY_INDEX_ENTRY_OVERHEAD} but includes space for min and max timestamps
+   * (two longs) written in non-root index blocks for HFile v4+.
+   */
+  static final int SECONDARY_INDEX_ENTRY_OVERHEAD_WITH_TIMESTAMPS =
+    SECONDARY_INDEX_ENTRY_OVERHEAD + 2 * Bytes.SIZEOF_LONG;
+
+  /**
    * Error message when trying to use inline block API in single-level mode.
    */
   private static final String INLINE_BLOCKS_NOT_ALLOWED =
@@ -544,8 +551,18 @@ public class HFileBlockIndex {
 
     @Override
     public void readMultiLevelIndexRoot(HFileBlock blk, final int numEntries) throws IOException {
+      readMultiLevelIndexRoot(blk, numEntries, HFile.DEFAULT_MINOR_VERSION);
+    }
+
+    public void readMultiLevelIndexRoot(HFileBlock blk, final int numEntries,
+      final int minorVersion) throws IOException {
       seeker = indexBlockEncoder.createSeeker();
-      seeker.initRootIndex(blk, numEntries, comparator, searchTreeLevel);
+      seeker.initRootIndex(blk, numEntries, comparator, searchTreeLevel, minorVersion);
+    }
+
+    @Override
+    public HFileIndexBlockEncoder.EncodedSeeker getEncodedSeeker() {
+      return seeker;
     }
 
     @Override
@@ -661,6 +678,15 @@ public class HFileBlockIndex {
     }
 
     /**
+     * Returns the encoded seeker for accessing block metadata (e.g., timestamps).
+     * Default implementation returns null; subclasses may override.
+     * @return the encoded seeker, or null if not available
+     */
+    public HFileIndexBlockEncoder.EncodedSeeker getEncodedSeeker() {
+      return null;
+    }
+
+    /**
      * Finds the root-level index block containing the given key. Key to find the comparator to be
      * used
      * @return Offset of block containing <code>key</code> (between 0 and the number of blocks - 1)
@@ -692,10 +718,22 @@ public class HFileBlockIndex {
 
     /**
      * The indexed key at the ith position in the nonRootIndex. The position starts at 0.
+     * Uses the default {@link HFileBlockIndex#SECONDARY_INDEX_ENTRY_OVERHEAD}.
      * @param i the ith position
      * @return The indexed key at the ith position in the nonRootIndex.
      */
     static byte[] getNonRootIndexedKey(ByteBuff nonRootIndex, int i) {
+      return getNonRootIndexedKey(nonRootIndex, i, SECONDARY_INDEX_ENTRY_OVERHEAD);
+    }
+
+    /**
+     * The indexed key at the ith position in the nonRootIndex. The position starts at 0.
+     * @param i             the ith position
+     * @param entryOverhead the per-entry overhead in bytes (offset + size, and optionally
+     *                      timestamps)
+     * @return The indexed key at the ith position in the nonRootIndex.
+     */
+    static byte[] getNonRootIndexedKey(ByteBuff nonRootIndex, int i, int entryOverhead) {
       int numEntries = nonRootIndex.getInt(0);
       if (i < 0 || i >= numEntries) {
         return null;
@@ -710,16 +748,28 @@ public class HFileBlockIndex {
       // The offset of the target key in the blockIndex buffer
       int targetKeyOffset = entriesOffset // Skip secondary index
         + targetKeyRelOffset // Skip all entries until mid
-        + SECONDARY_INDEX_ENTRY_OVERHEAD; // Skip offset and on-disk-size
+        + entryOverhead; // Skip offset, on-disk-size, and optionally timestamps
 
       // We subtract the two consecutive secondary index elements, which
-      // gives us the size of the whole (offset, onDiskSize, key) tuple. We
-      // then need to subtract the overhead of offset and onDiskSize.
+      // gives us the size of the whole (offset, onDiskSize, [timestamps,] key) tuple. We
+      // then need to subtract the overhead of offset, onDiskSize, and optionally timestamps.
       int targetKeyLength = nonRootIndex.getInt(Bytes.SIZEOF_INT * (i + 2)) - targetKeyRelOffset
-        - SECONDARY_INDEX_ENTRY_OVERHEAD;
+        - entryOverhead;
 
       // TODO check whether we can make BB backed Cell here? So can avoid bytes copy.
       return nonRootIndex.toBytes(targetKeyOffset, targetKeyLength);
+    }
+
+    /**
+     * Performs a binary search over a non-root level index block. Uses the default
+     * {@link HFileBlockIndex#SECONDARY_INDEX_ENTRY_OVERHEAD}.
+     * @return the index i in [0, numEntries - 1] such that keys[i] <= key < keys[i + 1], if keys is
+     *         the array of all keys being searched, or -1 otherwise
+     */
+    static int binarySearchNonRootIndex(Cell key, ByteBuff nonRootIndex,
+      CellComparator comparator) {
+      return binarySearchNonRootIndex(key, nonRootIndex, comparator,
+        SECONDARY_INDEX_ENTRY_OVERHEAD);
     }
 
     /**
@@ -727,11 +777,13 @@ public class HFileBlockIndex {
      * which records the offsets of (offset, onDiskSize, firstKey) tuples of all entries. the key we
      * are searching for offsets to individual entries in the blockIndex buffer the non-root index
      * block buffer, starting with the secondary index. The position is ignored.
+     * @param entryOverhead the per-entry overhead in bytes (offset + size, and optionally
+     *                      timestamps)
      * @return the index i in [0, numEntries - 1] such that keys[i] <= key < keys[i + 1], if keys is
      *         the array of all keys being searched, or -1 otherwise
      */
     static int binarySearchNonRootIndex(Cell key, ByteBuff nonRootIndex,
-      CellComparator comparator) {
+      CellComparator comparator, int entryOverhead) {
 
       int numEntries = nonRootIndex.getIntAfterPosition(0);
       int low = 0;
@@ -756,13 +808,13 @@ public class HFileBlockIndex {
         // The offset of the middle key in the blockIndex buffer
         int midKeyOffset = entriesOffset // Skip secondary index
           + midKeyRelOffset // Skip all entries until mid
-          + SECONDARY_INDEX_ENTRY_OVERHEAD; // Skip offset and on-disk-size
+          + entryOverhead; // Skip offset, on-disk-size, and optionally timestamps
 
         // We subtract the two consecutive secondary index elements, which
-        // gives us the size of the whole (offset, onDiskSize, key) tuple. We
-        // then need to subtract the overhead of offset and onDiskSize.
+        // gives us the size of the whole (offset, onDiskSize, [timestamps,] key) tuple. We
+        // then need to subtract the overhead of offset, onDiskSize, and optionally timestamps.
         int midLength = nonRootIndex.getIntAfterPosition(Bytes.SIZEOF_INT * (mid + 2))
-          - midKeyRelOffset - SECONDARY_INDEX_ENTRY_OVERHEAD;
+          - midKeyRelOffset - entryOverhead;
 
         // we have to compare in this order, because the comparator order
         // has special logic when the 'left side' is a special key.
@@ -803,16 +855,30 @@ public class HFileBlockIndex {
     }
 
     /**
-     * Search for one key using the secondary index in a non-root block. In case of success,
-     * positions the provided buffer at the entry of interest, where the file offset and the
-     * on-disk-size can be read. a non-root block without header. Initial position does not matter.
-     * the byte array containing the key
+     * Search for one key using the secondary index in a non-root block. Uses the default
+     * {@link HFileBlockIndex#SECONDARY_INDEX_ENTRY_OVERHEAD}.
      * @return the index position where the given key was found, otherwise return -1 in the case the
      *         given key is before the first key.
      */
     public static int locateNonRootIndexEntry(ByteBuff nonRootBlock, Cell key,
       CellComparator comparator) {
-      int entryIndex = binarySearchNonRootIndex(key, nonRootBlock, comparator);
+      return locateNonRootIndexEntry(nonRootBlock, key, comparator,
+        SECONDARY_INDEX_ENTRY_OVERHEAD);
+    }
+
+    /**
+     * Search for one key using the secondary index in a non-root block. In case of success,
+     * positions the provided buffer at the entry of interest, where the file offset and the
+     * on-disk-size can be read. a non-root block without header. Initial position does not matter.
+     * the byte array containing the key
+     * @param entryOverhead the per-entry overhead in bytes (offset + size, and optionally
+     *                      timestamps)
+     * @return the index position where the given key was found, otherwise return -1 in the case the
+     *         given key is before the first key.
+     */
+    public static int locateNonRootIndexEntry(ByteBuff nonRootBlock, Cell key,
+      CellComparator comparator, int entryOverhead) {
+      int entryIndex = binarySearchNonRootIndex(key, nonRootBlock, comparator, entryOverhead);
 
       if (entryIndex != -1) {
         int numEntries = nonRootBlock.getIntAfterPosition(0);
@@ -936,13 +1002,13 @@ public class HFileBlockIndex {
      * block index. After all levels of the index were written by
      * {@link #writeIndexBlocks(FSDataOutputStream)}, this contains the final root-level index.
      */
-    private BlockIndexChunk rootChunk = new BlockIndexChunkImpl();
+    private BlockIndexChunk rootChunk;
 
     /**
      * Current leaf-level chunk. New entries referencing data blocks get added to this chunk until
      * it grows large enough to be written to disk.
      */
-    private BlockIndexChunk curInlineChunk = new BlockIndexChunkImpl();
+    private BlockIndexChunk curInlineChunk;
 
     /**
      * The number of block index levels. This is one if there is only root level (even empty), two
@@ -953,8 +1019,20 @@ public class HFileBlockIndex {
      */
     private int numLevels = 1;
 
+    /**
+     * HFile minor version to use when writing index blocks.
+     * Determines whether timestamps should be written.
+     */
+    private int minorVersion = 0;
+
     private HFileBlock.Writer blockWriter;
     private byte[] firstKey = null;
+
+    /** Aggregate min timestamp of the most recently written leaf index block. */
+    private long leafBlockMinTimestamp = Long.MAX_VALUE;
+
+    /** Aggregate max timestamp of the most recently written leaf index block. */
+    private long leafBlockMaxTimestamp = Long.MIN_VALUE;
 
     /**
      * The total number of leaf-level entries, i.e. entries referenced by leaf-level blocks. For the
@@ -987,8 +1065,8 @@ public class HFileBlockIndex {
     private HFileIndexBlockEncoder indexBlockEncoder;
 
     /** Creates a single-level block index writer */
-    public BlockIndexWriter() {
-      this(null, null, null, null);
+    public BlockIndexWriter(int minorVersion) {
+      this(null, null, null, null, minorVersion);
       singleLevelOnly = true;
     }
 
@@ -996,9 +1074,10 @@ public class HFileBlockIndex {
      * Creates a multi-level block index writer.
      * @param blockWriter the block writer to use to write index blocks
      * @param cacheConf   used to determine when and how a block should be cached-on-write.
+     * @param minorVersion the HFile minor version to use for this index
      */
     public BlockIndexWriter(HFileBlock.Writer blockWriter, CacheConfig cacheConf,
-      String nameForCaching, HFileIndexBlockEncoder indexBlockEncoder) {
+      String nameForCaching, HFileIndexBlockEncoder indexBlockEncoder, int minorVersion) {
       if ((cacheConf == null) != (nameForCaching == null)) {
         throw new IllegalArgumentException(
           "Block cache and file name for " + "caching must be both specified or both null");
@@ -1011,6 +1090,11 @@ public class HFileBlockIndex {
       this.minIndexNumEntries = HFileBlockIndex.DEFAULT_MIN_INDEX_NUM_ENTRIES;
       this.indexBlockEncoder =
         indexBlockEncoder != null ? indexBlockEncoder : NoOpIndexBlockEncoder.INSTANCE;
+      this.minorVersion = minorVersion;
+
+      // Initialize chunks with the minor version
+      this.rootChunk = createChunk();
+      this.curInlineChunk = createChunk();
     }
 
     public void setMaxChunkSize(int maxChunkSize) {
@@ -1025,6 +1109,13 @@ public class HFileBlockIndex {
         throw new IllegalArgumentException("Invalid maximum index level, should be >= 2");
       }
       this.minIndexNumEntries = minIndexNumEntries;
+    }
+
+    /**
+     * Helper method to create a new chunk with the minor version set.
+     */
+    private BlockIndexChunkImpl createChunk() {
+      return new BlockIndexChunkImpl(minorVersion);
     }
 
     /**
@@ -1111,7 +1202,7 @@ public class HFileBlockIndex {
         throw new IOException("Root-level entries already added in " + "single-level mode");
 
       rootChunk = curInlineChunk;
-      curInlineChunk = new BlockIndexChunkImpl();
+      curInlineChunk = createChunk();
 
       if (LOG.isTraceEnabled()) {
         LOG.trace("Wrote a single-level " + description + " index with " + rootChunk.getNumEntries()
@@ -1132,14 +1223,20 @@ public class HFileBlockIndex {
     private BlockIndexChunk writeIntermediateLevel(FSDataOutputStream out,
       BlockIndexChunk currentLevel) throws IOException {
       // Entries referencing intermediate-level blocks we are about to create.
-      BlockIndexChunk parent = new BlockIndexChunkImpl();
+      BlockIndexChunk parent = createChunk();
 
       // The current intermediate-level block index chunk.
-      BlockIndexChunk curChunk = new BlockIndexChunkImpl();
+      BlockIndexChunk curChunk = createChunk();
 
       for (int i = 0; i < currentLevel.getNumEntries(); ++i) {
-        curChunk.add(currentLevel.getBlockKey(i), currentLevel.getBlockOffset(i),
-          currentLevel.getOnDiskDataSize(i));
+        if (currentLevel.hasTimestamps()) {
+          ((BlockIndexChunkImpl) curChunk).add(currentLevel.getBlockKey(i),
+            currentLevel.getBlockOffset(i), currentLevel.getOnDiskDataSize(i),
+            currentLevel.getBlockMinTimestamp(i), currentLevel.getBlockMaxTimestamp(i));
+        } else {
+          curChunk.add(currentLevel.getBlockKey(i), currentLevel.getBlockOffset(i),
+            currentLevel.getOnDiskDataSize(i));
+        }
 
         // HBASE-16288: We have to have at least minIndexNumEntries(16) items in the index so that
         // we won't end up with too-many levels for a index with very large rowKeys. Also, if the
@@ -1182,7 +1279,18 @@ public class HFileBlockIndex {
       // + the secondary index size
       // FIRST_KEY is the first key in the chunk of block index
       // entries.
-      parent.add(curFirstKey, beginOffset, blockWriter.getOnDiskSizeWithHeader());
+      if (curChunk.hasTimestamps()) {
+        long aggMin = Long.MAX_VALUE;
+        long aggMax = Long.MIN_VALUE;
+        for (int j = 0; j < curChunk.getNumEntries(); j++) {
+          aggMin = Math.min(aggMin, curChunk.getBlockMinTimestamp(j));
+          aggMax = Math.max(aggMax, curChunk.getBlockMaxTimestamp(j));
+        }
+        ((BlockIndexChunkImpl) parent).add(curFirstKey, beginOffset,
+          blockWriter.getOnDiskSizeWithHeader(), aggMin, aggMax);
+      } else {
+        parent.add(curFirstKey, beginOffset, blockWriter.getOnDiskSizeWithHeader());
+      }
 
       // clear current block index chunk
       curChunk.clear();
@@ -1260,6 +1368,19 @@ public class HFileBlockIndex {
       // parent-level index.
       firstKey = curInlineChunk.getBlockKey(0);
 
+      // Compute aggregate min/max timestamps from the leaf block entries
+      // before clearing, so blockWritten() can propagate them to the root chunk.
+      if (curInlineChunk.hasTimestamps()) {
+        leafBlockMinTimestamp = Long.MAX_VALUE;
+        leafBlockMaxTimestamp = Long.MIN_VALUE;
+        for (int i = 0; i < curInlineChunk.getNumEntries(); i++) {
+          leafBlockMinTimestamp =
+            Math.min(leafBlockMinTimestamp, curInlineChunk.getBlockMinTimestamp(i));
+          leafBlockMaxTimestamp =
+            Math.max(leafBlockMaxTimestamp, curInlineChunk.getBlockMaxTimestamp(i));
+        }
+      }
+
       // Start a new inline index block
       curInlineChunk.clear();
     }
@@ -1290,7 +1411,14 @@ public class HFileBlockIndex {
 
       // Add another entry to the second-level index. Include the number of
       // entries in all previous leaf-level chunks for mid-key calculation.
-      rootChunk.add(firstKey, offset, onDiskSize, totalNumEntries);
+      if (leafBlockMinTimestamp != Long.MAX_VALUE && leafBlockMaxTimestamp != Long.MIN_VALUE) {
+        ((BlockIndexChunkImpl) rootChunk).add(firstKey, offset, onDiskSize, totalNumEntries,
+          leafBlockMinTimestamp, leafBlockMaxTimestamp);
+        leafBlockMinTimestamp = Long.MAX_VALUE;
+        leafBlockMaxTimestamp = Long.MIN_VALUE;
+      } else {
+        rootChunk.add(firstKey, offset, onDiskSize, totalNumEntries);
+      }
       firstKey = null;
     }
 
@@ -1310,6 +1438,22 @@ public class HFileBlockIndex {
      */
     public void addEntry(byte[] firstKey, long blockOffset, int blockDataSize) {
       curInlineChunk.add(firstKey, blockOffset, blockDataSize);
+      ++totalNumEntries;
+    }
+
+    /**
+     * Add one index entry with timestamp metadata to the current leaf-level block.
+     * @param firstKey      the first key of the data block
+     * @param blockOffset   the offset of the data block
+     * @param blockDataSize the on-disk size of the data block
+     * @param minTimestamp  the minimum timestamp in the block
+     * @param maxTimestamp  the maximum timestamp in the block
+     */
+    public void addEntry(byte[] firstKey, long blockOffset, int blockDataSize, long minTimestamp,
+      long maxTimestamp) {
+      // Cast to BlockIndexChunkImpl to access timestamp methods
+      ((BlockIndexChunkImpl) curInlineChunk).add(firstKey, blockOffset, blockDataSize,
+        minTimestamp, maxTimestamp);
       ++totalNumEntries;
     }
 
@@ -1359,12 +1503,29 @@ public class HFileBlockIndex {
     /** On-disk data sizes of lower-level data or index blocks. */
     private final List<Integer> onDiskDataSizes = new ArrayList<>();
 
+    /** Minimum timestamps of blocks. */
+    private final List<Long> blockMinTimestamps = new ArrayList<>();
+
+    /** Maximum timestamps of blocks. */
+    private final List<Long> blockMaxTimestamps = new ArrayList<>();
+
+    /** HFile minor version for this chunk. Used to determine serialization format. */
+    private final int minorVersion;
+
     /**
      * The cumulative number of sub-entries, i.e. entries on deeper-level block index entries.
      * numSubEntriesAt[i] is the number of sub-entries in the blocks corresponding to this chunk's
      * entries #0 through #i inclusively.
      */
     private final List<Long> numSubEntriesAt = new ArrayList<>();
+
+    /**
+     * Creates a new block index chunk with the specified HFile minor version.
+     * @param minorVersion the HFile minor version to use for serialization
+     */
+    public BlockIndexChunkImpl(int minorVersion) {
+      this.minorVersion = minorVersion;
+    }
 
     /**
      * The offset of the next entry to be added, relative to the end of the "secondary index" in the
@@ -1430,11 +1591,49 @@ public class HFileBlockIndex {
       add(firstKey, blockOffset, onDiskDataSize, -1);
     }
 
+    /**
+     * Adds a new entry with timestamp metadata to this block index chunk.
+     * @param firstKey       the first key in the block pointed to by this entry
+     * @param blockOffset    the offset of the next-level block pointed to by this entry
+     * @param onDiskDataSize the on-disk data of the block pointed to by this entry
+     * @param minTimestamp   the minimum timestamp in the block
+     * @param maxTimestamp   the maximum timestamp in the block
+     */
+    public void add(byte[] firstKey, long blockOffset, int onDiskDataSize, long minTimestamp,
+      long maxTimestamp) {
+      add(firstKey, blockOffset, onDiskDataSize, -1, minTimestamp, maxTimestamp);
+    }
+
+    /**
+     * Adds a new entry with timestamp metadata to this block index chunk.
+     * @param firstKey              the first key in the block pointed to by this entry
+     * @param blockOffset           the offset of the next-level block pointed to by this entry
+     * @param onDiskDataSize        the on-disk data of the block pointed to by this entry
+     * @param curTotalNumSubEntries the current total number of sub-entries
+     * @param minTimestamp          the minimum timestamp in the block
+     * @param maxTimestamp          the maximum timestamp in the block
+     */
+    public void add(byte[] firstKey, long blockOffset, int onDiskDataSize,
+      long curTotalNumSubEntries, long minTimestamp, long maxTimestamp) {
+      // First add the entry as usual
+      add(firstKey, blockOffset, onDiskDataSize, curTotalNumSubEntries);
+
+      // Account for the extra timestamp bytes in both root and non-root size calculations.
+      curTotalRootSize += 2 * Bytes.SIZEOF_LONG;
+      curTotalNonRootEntrySize += 2 * Bytes.SIZEOF_LONG;
+
+      // Then add timestamp metadata
+      blockMinTimestamps.add(minTimestamp);
+      blockMaxTimestamps.add(maxTimestamp);
+    }
+
     @Override
     public void clear() {
       blockKeys.clear();
       blockOffsets.clear();
       onDiskDataSizes.clear();
+      blockMinTimestamps.clear();
+      blockMaxTimestamps.clear();
       secondaryIndexOffsetMarks.clear();
       numSubEntriesAt.clear();
       curTotalNonRootEntrySize = 0;
@@ -1559,6 +1758,35 @@ public class HFileBlockIndex {
     public long getCumulativeNumKV(int i) {
       if (i < 0) return 0;
       return numSubEntriesAt.get(i);
+    }
+
+    public long getBlockMinTimestamp(int i) {
+      if (i >= 0 && i < blockMinTimestamps.size()) {
+        return blockMinTimestamps.get(i);
+      }
+      return org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MIN_TIMESTAMP;
+    }
+
+    public long getBlockMaxTimestamp(int i) {
+      if (i >= 0 && i < blockMaxTimestamps.size()) {
+        return blockMaxTimestamps.get(i);
+      }
+      return org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MAX_TIMESTAMP;
+    }
+
+    /**
+     * Returns true if this chunk has timestamp metadata.
+     * Used to determine whether to write timestamps during serialization.
+     */
+    public boolean hasTimestamps() {
+      return !blockMinTimestamps.isEmpty() && !blockMaxTimestamps.isEmpty();
+    }
+
+    /**
+     * Gets the HFile minor version for this chunk.
+     */
+    public int getMinorVersion() {
+      return minorVersion;
     }
 
   }

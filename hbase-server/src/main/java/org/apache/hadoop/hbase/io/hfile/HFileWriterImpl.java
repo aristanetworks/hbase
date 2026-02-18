@@ -336,13 +336,14 @@ public class HFileWriterImpl implements HFile.Writer {
     // Data block index writer
     boolean cacheIndexesOnWrite = cacheConf.shouldCacheIndexesOnWrite();
     dataBlockIndexWriter = new HFileBlockIndex.BlockIndexWriter(blockWriter,
-      cacheIndexesOnWrite ? cacheConf : null, cacheIndexesOnWrite ? name : null, indexBlockEncoder);
+      cacheIndexesOnWrite ? cacheConf : null, cacheIndexesOnWrite ? name : null, indexBlockEncoder,
+      getMinorVersion());
     dataBlockIndexWriter.setMaxChunkSize(HFileBlockIndex.getMaxChunkSize(conf));
     dataBlockIndexWriter.setMinIndexNumEntries(HFileBlockIndex.getMinIndexNumEntries(conf));
     inlineBlockWriters.add(dataBlockIndexWriter);
 
     // Meta data block index writer
-    metaBlockIndexWriter = new HFileBlockIndex.BlockIndexWriter();
+    metaBlockIndexWriter = new HFileBlockIndex.BlockIndexWriter(getMinorVersion());
     LOG.trace("Initialized with {}", cacheConf);
   }
 
@@ -379,12 +380,32 @@ public class HFileWriterImpl implements HFile.Writer {
     }
     // Update the last data block offset each time through here.
     lastDataBlockOffset = outputStream.getPos();
+
+    // Capture block's time range BEFORE writeHeaderAndData, which resets the tracker
+    long blockMinTs = TimeRangeTracker.INITIAL_MIN_TIMESTAMP;
+    long blockMaxTs = TimeRangeTracker.INITIAL_MAX_TIMESTAMP;
+    if (getMinorVersion() >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE) {
+      TimeRangeTracker blockTracker = blockWriter.getBlockTimeRangeTracker();
+      if (blockTracker != null && blockTracker.getMin() != TimeRangeTracker.INITIAL_MIN_TIMESTAMP) {
+        blockMinTs = blockTracker.getMin();
+        blockMaxTs = blockTracker.getMax();
+      }
+    }
+
     blockWriter.writeHeaderAndData(outputStream);
     int onDiskSize = blockWriter.getOnDiskSizeWithHeader();
     Cell indexEntry =
       getMidpoint(this.hFileContext.getCellComparator(), lastCellOfPreviousBlock, firstCellInBlock);
-    dataBlockIndexWriter.addEntry(PrivateCellUtil.getCellKeySerializedAsKeyValueKey(indexEntry),
-      lastDataBlockOffset, onDiskSize);
+
+    // Add block index entry with timestamps only for HFile v4+
+    if (getMinorVersion() >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE) {
+      dataBlockIndexWriter.addEntry(PrivateCellUtil.getCellKeySerializedAsKeyValueKey(indexEntry),
+        lastDataBlockOffset, onDiskSize, blockMinTs, blockMaxTs);
+    } else {
+      dataBlockIndexWriter.addEntry(PrivateCellUtil.getCellKeySerializedAsKeyValueKey(indexEntry),
+        lastDataBlockOffset, onDiskSize);
+    }
+
     totalUncompressedBytes += blockWriter.getUncompressedSizeWithHeader();
     if (cacheConf.shouldCacheDataOnWrite()) {
       doCacheOnWrite(lastDataBlockOffset);
@@ -807,6 +828,7 @@ public class HFileWriterImpl implements HFile.Writer {
     }
 
     trackTimestamps(cell);
+    blockWriter.trackTimestamp(cell);
   }
 
   @Override
@@ -870,7 +892,8 @@ public class HFileWriterImpl implements HFile.Writer {
   }
 
   protected int getMinorVersion() {
-    return HFileReaderImpl.MAX_MINOR_VERSION;
+    // Use configured minor version to allow users to disable v4 features for rollback
+    return HFile.getFormatMinorVersion(conf);
   }
 
   protected void finishClose(FixedFileTrailer trailer) throws IOException {

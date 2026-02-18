@@ -777,7 +777,7 @@ public class TestBytesReadServerSideScanMetrics {
     CellComparator comparator = trailer.createComparator();
     // Initialize the seeker
     seeker.initRootIndex(block, trailer.getDataIndexCount(), comparator,
-      trailer.getNumDataIndexLevels());
+      trailer.getNumDataIndexLevels(), trailer.getMinorVersion());
 
     int blockLevelsRead = 1; // Root index is the first level
 

@@ -259,11 +259,20 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
 
     List<KeyValueScanner> scanners = null;
     try {
+      // Get time range for block-level filtering
+      // Try column family specific time range first, fall back to scan-wide time range
+      byte[] cf = store.getColumnFamilyDescriptor().getName();
+      org.apache.hadoop.hbase.io.TimeRange timeRange = scan.getColumnFamilyTimeRange().get(cf);
+      if (timeRange == null) {
+        timeRange = scan.getTimeRange();
+      }
+
       // Pass columns to try to filter out unnecessary StoreFiles.
+      // Also pass time range for block-level timestamp filtering
       scanners = selectScannersFrom(store,
         store.getScanners(cacheBlocks, scanUsePread, false, matcher, scan.getStartRow(),
           scan.includeStartRow(), scan.getStopRow(), scan.includeStopRow(), this.readPt,
-          isOnlyLatestVersionScan(scan)));
+          isOnlyLatestVersionScan(scan), timeRange));
 
       // Seek all scanners to the start of the Row (or if the exact matching row
       // key does not exist, then to the start of the next matching Row).

@@ -53,8 +53,8 @@ public interface HFileIndexBlockEncoder {
   EncodedSeeker createSeeker();
 
   interface EncodedSeeker extends HeapSize {
-    void initRootIndex(HFileBlock blk, int numEntries, CellComparator comparator, int treeLevel)
-      throws IOException;
+    void initRootIndex(HFileBlock blk, int numEntries, CellComparator comparator, int treeLevel,
+      int minorVersion) throws IOException;
 
     boolean isEmpty();
 

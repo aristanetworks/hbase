@@ -62,6 +62,7 @@ import org.apache.hadoop.hbase.nio.ByteBuff;
 import org.apache.hadoop.hbase.nio.MultiByteBuff;
 import org.apache.hadoop.hbase.nio.SingleByteBuff;
 import org.apache.hadoop.hbase.regionserver.ShipperListener;
+import org.apache.hadoop.hbase.regionserver.TimeRangeTracker;
 import org.apache.hadoop.hbase.trace.HBaseSemanticAttributes.ReadType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ChecksumType;
@@ -819,6 +820,9 @@ public class HFileBlock implements Cacheable {
 
     private final ByteBuffAllocator allocator;
 
+    /** Per-block timestamp tracker for DATA and ENCODED_DATA blocks */
+    private TimeRangeTracker blockTimeRangeTracker;
+
     @Override
     public void beforeShipped() {
       if (getEncodingState() != null) {
@@ -887,6 +891,11 @@ public class HFileBlock implements Cacheable {
 
       state = State.WRITING;
 
+      // Initialize per-block timestamp tracker for DATA and ENCODED_DATA blocks
+      if (newBlockType == BlockType.DATA || newBlockType == BlockType.ENCODED_DATA) {
+        blockTimeRangeTracker = TimeRangeTracker.create(TimeRangeTracker.Type.NON_SYNC);
+      }
+
       // We will compress it later in finishBlock()
       userDataStream = new ByteBufferWriterDataOutputStream(baosInMemory);
       if (newBlockType == BlockType.DATA) {
@@ -901,6 +910,25 @@ public class HFileBlock implements Cacheable {
     void write(Cell cell) throws IOException {
       expectState(State.WRITING);
       this.dataBlockEncoder.encode(cell, dataBlockEncodingCtx, this.userDataStream);
+    }
+
+    /**
+     * Track timestamp for the current cell being written to the block.
+     * This method should be called for each cell written to a DATA or ENCODED_DATA block.
+     * @param cell the cell whose timestamp should be tracked
+     */
+    void trackTimestamp(Cell cell) {
+      if (blockTimeRangeTracker != null) {
+        blockTimeRangeTracker.includeTimestamp(cell);
+      }
+    }
+
+    /**
+     * Returns the time range tracker for the current block, or null if not applicable.
+     * @return the block's time range tracker
+     */
+    TimeRangeTracker getBlockTimeRangeTracker() {
+      return blockTimeRangeTracker;
     }
 
     /**
@@ -984,6 +1012,9 @@ public class HFileBlock implements Cacheable {
       ChecksumUtil.generateChecksums(onDiskBlockBytesWithHeader.getBuffer(), 0,
         onDiskBlockBytesWithHeader.size(), onDiskChecksum, 0, fileContext.getChecksumType(),
         fileContext.getBytesPerChecksum());
+
+      // Reset block time range tracker after finishing block
+      blockTimeRangeTracker = null;
     }
 
     /**

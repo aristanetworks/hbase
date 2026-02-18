@@ -66,7 +66,9 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
   /**
    * Writes the block index chunk in the non-root index block format. This format contains the
    * number of entries, an index of integer offsets for quick binary search on variable-length
-   * records, and tuples of block offset, on-disk block size, and the first key for each entry.
+   * records, and tuples of block offset, on-disk block size, optional timestamps, and the first
+   * key for each entry. For HFile v4+, min/max timestamps are written between the on-disk size
+   * and the key, producing a fixed entry overhead of 28 bytes instead of 12.
    */
   private void writeNonRoot(BlockIndexChunk blockIndexChunk, DataOutput out) throws IOException {
     // The number of entries in the block.
@@ -91,9 +93,14 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
     // size of each entry more easily by subtracting secondary index elements.
     out.writeInt(blockIndexChunk.getCurTotalNonRootEntrySize());
 
+    boolean hasTimestamps = blockIndexChunk.hasTimestamps();
     for (int i = 0; i < blockIndexChunk.getNumEntries(); ++i) {
       out.writeLong(blockIndexChunk.getBlockOffset(i));
       out.writeInt(blockIndexChunk.getOnDiskDataSize(i));
+      if (hasTimestamps) {
+        out.writeLong(blockIndexChunk.getBlockMinTimestamp(i));
+        out.writeLong(blockIndexChunk.getBlockMaxTimestamp(i));
+      }
       out.write(blockIndexChunk.getBlockKey(i));
     }
   }
@@ -102,13 +109,20 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
    * Writes this chunk into the given output stream in the root block index format. This format is
    * similar to the {@link HFile} version 1 block index format, except that we store on-disk size of
    * the block instead of its uncompressed size.
+   * For HFile v4+, min/max timestamps are written between the on-disk size and the key, matching
+   * the non-root index block layout.
    * @param out the data output stream to write the block index to. Typically a stream writing into
    *            an {@link HFile} block.
    */
   private void writeRoot(BlockIndexChunk blockIndexChunk, DataOutput out) throws IOException {
+    boolean hasTimestamps = blockIndexChunk.hasTimestamps();
     for (int i = 0; i < blockIndexChunk.getNumEntries(); ++i) {
       out.writeLong(blockIndexChunk.getBlockOffset(i));
       out.writeInt(blockIndexChunk.getOnDiskDataSize(i));
+      if (hasTimestamps) {
+        out.writeLong(blockIndexChunk.getBlockMinTimestamp(i));
+        out.writeLong(blockIndexChunk.getBlockMaxTimestamp(i));
+      }
       Bytes.writeByteArray(out, blockIndexChunk.getBlockKey(i));
     }
   }
@@ -135,6 +149,10 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
     protected int[] blockDataSizes;
     protected int rootCount = 0;
 
+    // Block timestamp metadata (HFile v4+)
+    protected long[] blockMinTimestamps;
+    protected long[] blockMaxTimestamps;
+
     // Mid-key metadata.
     protected long midLeafBlockOffset = -1;
     protected int midLeafBlockOnDiskSize = -1;
@@ -143,6 +161,9 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
     private Cell[] blockKeys;
     private CellComparator comparator;
     protected int searchTreeLevel;
+
+    // Minor version of the HFile being read
+    private int minorVersion = 0;
 
     /** Pre-computed mid-key */
     private AtomicReference<Cell> midKey = new AtomicReference<>();
@@ -162,6 +183,14 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
         heapSize += ClassSize.align(ClassSize.ARRAY + blockDataSizes.length * Bytes.SIZEOF_INT);
       }
 
+      // Block timestamp arrays (HFile v4+)
+      if (blockMinTimestamps != null) {
+        heapSize += ClassSize.align(ClassSize.ARRAY + blockMinTimestamps.length * Bytes.SIZEOF_LONG);
+      }
+      if (blockMaxTimestamps != null) {
+        heapSize += ClassSize.align(ClassSize.ARRAY + blockMaxTimestamps.length * Bytes.SIZEOF_LONG);
+      }
+
       if (blockKeys != null) {
         heapSize += ClassSize.REFERENCE;
         // Adding array + references overhead
@@ -174,8 +203,8 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
       }
       // Add comparator and the midkey atomicreference
       heapSize += 2 * ClassSize.REFERENCE;
-      // Add rootCount and searchTreeLevel
-      heapSize += 2 * Bytes.SIZEOF_INT;
+      // Add rootCount, searchTreeLevel, and minorVersion
+      heapSize += 3 * Bytes.SIZEOF_INT;
 
       return ClassSize.align(heapSize);
     }
@@ -197,9 +226,10 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
 
     @Override
     public void initRootIndex(HFileBlock blk, int numEntries, CellComparator comparator,
-      int treeLevel) throws IOException {
+      int treeLevel, int minorVersion) throws IOException {
       this.comparator = comparator;
       this.searchTreeLevel = treeLevel;
+      this.minorVersion = minorVersion;
       init(blk, numEntries);
     }
 
@@ -228,13 +258,31 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
       initialize(numEntries);
       blockDataSizes = new int[numEntries];
 
-      // If index size is zero, no index was written.
+      boolean hasTimestamps =
+        minorVersion >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE;
+      if (hasTimestamps) {
+        blockMinTimestamps = new long[numEntries];
+        blockMaxTimestamps = new long[numEntries];
+      }
+
       if (numEntries > 0) {
         for (int i = 0; i < numEntries; ++i) {
           long offset = in.readLong();
           int dataSize = in.readInt();
+
+          long minTs = 0, maxTs = 0;
+          if (hasTimestamps) {
+            minTs = in.readLong();
+            maxTs = in.readLong();
+          }
+
           byte[] key = Bytes.readByteArray(in);
-          add(key, offset, dataSize);
+
+          if (hasTimestamps) {
+            add(key, offset, dataSize, minTs, maxTs);
+          } else {
+            add(key, offset, dataSize);
+          }
         }
       }
     }
@@ -244,10 +292,24 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
     }
 
     private void add(final byte[] key, final long offset, final int dataSize) {
+      add(key, offset, dataSize,
+        org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MIN_TIMESTAMP,
+        org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MAX_TIMESTAMP);
+    }
+
+    private void add(final byte[] key, final long offset, final int dataSize, final long minTs,
+      final long maxTs) {
       blockOffsets[rootCount] = offset;
       // Create the blockKeys as Cells once when the reader is opened
       blockKeys[rootCount] = new KeyValue.KeyOnlyKeyValue(key, 0, key.length);
       blockDataSizes[rootCount] = dataSize;
+
+      // Store timestamps if arrays are allocated (HFile v4+)
+      if (blockMinTimestamps != null && blockMaxTimestamps != null) {
+        blockMinTimestamps[rootCount] = minTs;
+        blockMaxTimestamps[rootCount] = maxTs;
+      }
+
       rootCount++;
     }
 
@@ -270,8 +332,13 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
         HFileBlock midLeafBlock = cachingBlockReader.readBlock(midLeafBlockOffset,
           midLeafBlockOnDiskSize, true, true, false, true, BlockType.LEAF_INDEX, null);
         try {
+          int entryOverhead =
+            minorVersion >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE
+              ? HFileBlockIndex.SECONDARY_INDEX_ENTRY_OVERHEAD_WITH_TIMESTAMPS
+              : HFileBlockIndex.SECONDARY_INDEX_ENTRY_OVERHEAD;
           byte[] bytes = HFileBlockIndex.BlockIndexReader
-            .getNonRootIndexedKey(midLeafBlock.getBufferWithoutHeader(), midKeyEntry);
+            .getNonRootIndexedKey(midLeafBlock.getBufferWithoutHeader(), midKeyEntry,
+              entryOverhead);
           assert bytes != null;
           targetMidKey = new KeyValue.KeyOnlyKeyValue(bytes, 0, bytes.length);
         } finally {
@@ -363,7 +430,12 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
           // Locate the entry corresponding to the given key in the non-root
           // (leaf or intermediate-level) index block.
           ByteBuff buffer = block.getBufferWithoutHeader();
-          index = HFileBlockIndex.BlockIndexReader.locateNonRootIndexEntry(buffer, key, comparator);
+          int entryOverhead =
+            minorVersion >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE
+              ? HFileBlockIndex.SECONDARY_INDEX_ENTRY_OVERHEAD_WITH_TIMESTAMPS
+              : HFileBlockIndex.SECONDARY_INDEX_ENTRY_OVERHEAD;
+          index = HFileBlockIndex.BlockIndexReader.locateNonRootIndexEntry(buffer, key, comparator,
+            entryOverhead);
           if (index == -1) {
             // This has to be changed
             // For now change this to key value
@@ -374,9 +446,16 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
           currentOffset = buffer.getLong();
           currentOnDiskSize = buffer.getInt();
 
+          // Skip past timestamp fields for v4+ non-root index blocks
+          if (minorVersion >= HFileReaderImpl.MINOR_VERSION_WITH_BLOCK_TIMERANGE) {
+            buffer.getLong(); // skip minTimestamp
+            buffer.getLong(); // skip maxTimestamp
+          }
+
           // Only update next indexed key if there is a next indexed key in the current level
           byte[] nonRootIndexedKey =
-            HFileBlockIndex.BlockIndexReader.getNonRootIndexedKey(buffer, index + 1);
+            HFileBlockIndex.BlockIndexReader.getNonRootIndexedKey(buffer, index + 1,
+              entryOverhead);
           if (nonRootIndexedKey != null) {
             tmpNextIndexKV.setKey(nonRootIndexedKey, 0, nonRootIndexedKey.length);
             nextIndexedKey = tmpNextIndexKV;
@@ -426,6 +505,105 @@ public class NoOpIndexBlockEncoder implements HFileIndexBlockEncoder {
       int i = -pos - 1;
       assert 0 <= i && i <= blockKeys.length;
       return i - 1;
+    }
+
+    /**
+     * Get the minimum timestamp for a block at the given index.
+     * @param blockIndex the block index
+     * @return the minimum timestamp, or INITIAL_MIN_TIMESTAMP if not available
+     */
+    public long getBlockMinTimestamp(int blockIndex) {
+      if (blockMinTimestamps != null && blockIndex >= 0 && blockIndex < blockMinTimestamps.length) {
+        return blockMinTimestamps[blockIndex];
+      }
+      return org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MIN_TIMESTAMP;
+    }
+
+    /**
+     * Get the maximum timestamp for a block at the given index.
+     * @param blockIndex the block index
+     * @return the maximum timestamp, or INITIAL_MAX_TIMESTAMP if not available
+     */
+    public long getBlockMaxTimestamp(int blockIndex) {
+      if (blockMaxTimestamps != null && blockIndex >= 0 && blockIndex < blockMaxTimestamps.length) {
+        return blockMaxTimestamps[blockIndex];
+      }
+      return org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MAX_TIMESTAMP;
+    }
+
+    /**
+     * Find the block index for a given block offset.
+     * @param blockOffset the block offset to find
+     * @return the block index, or -1 if not found
+     */
+    public int getBlockIndexByOffset(long blockOffset) {
+      if (blockOffsets == null) {
+        return -1;
+      }
+      for (int i = 0; i < rootCount; i++) {
+        if (blockOffsets[i] == blockOffset) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    /**
+     * Check if a block at the given offset should be read based on time range filtering.
+     * @param blockOffset    the block offset
+     * @param scanTimeRange  the scan's time range filter (null means no filtering)
+     * @return true if the block should be read, false if it can be skipped
+     */
+    public boolean shouldReadBlockAtOffset(long blockOffset,
+      org.apache.hadoop.hbase.io.TimeRange scanTimeRange) {
+      // If no time range filter, read all blocks
+      if (scanTimeRange == null) {
+        return true;
+      }
+
+      // Find the block index for this offset
+      int blockIndex = getBlockIndexByOffset(blockOffset);
+      if (blockIndex < 0) {
+        // Block not found in index - read it to be safe
+        return true;
+      }
+
+      return shouldReadBlock(blockIndex, scanTimeRange);
+    }
+
+    /**
+     * Check if a block should be read based on time range filtering.
+     * @param blockIndex     the block index
+     * @param scanTimeRange  the scan's time range filter
+     * @return true if the block should be read, false if it can be skipped
+     */
+    public boolean shouldReadBlock(int blockIndex,
+      org.apache.hadoop.hbase.io.TimeRange scanTimeRange) {
+      // If no timestamp metadata available, must read the block (backward compatibility)
+      if (blockMinTimestamps == null || blockMaxTimestamps == null) {
+        return true;
+      }
+
+      // If block index out of range, should not read
+      if (blockIndex < 0 || blockIndex >= blockMinTimestamps.length) {
+        return false;
+      }
+
+      long blockMin = blockMinTimestamps[blockIndex];
+      long blockMax = blockMaxTimestamps[blockIndex];
+
+      // If timestamps are initial values (no data), read the block
+      if (
+        blockMin == org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MIN_TIMESTAMP
+          || blockMax == org.apache.hadoop.hbase.regionserver.TimeRangeTracker.INITIAL_MAX_TIMESTAMP
+      ) {
+        return true;
+      }
+
+      // Check if block's time range overlaps with scan's time range
+      org.apache.hadoop.hbase.io.TimeRange blockRange =
+        org.apache.hadoop.hbase.io.TimeRange.between(blockMin, blockMax + 1);
+      return scanTimeRange.includesTimeRange(blockRange);
     }
 
     @Override

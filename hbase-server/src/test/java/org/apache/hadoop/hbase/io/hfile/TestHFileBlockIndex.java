@@ -202,7 +202,7 @@ public class TestHFileBlockIndex {
     CacheConfig cacheConfig = new CacheConfig(TEST_UTIL.getConfiguration(), null, cache, allocator);
 
     HFileBlockIndex.BlockIndexWriter biw =
-      new HFileBlockIndex.BlockIndexWriter(hbw, cacheConfig, path.getName(), null);
+      new HFileBlockIndex.BlockIndexWriter(hbw, cacheConfig, path.getName(), null, 3);
 
     writeDataBlocksAndCreateIndex(hbw, outputStream, biw);
 
@@ -342,7 +342,7 @@ public class TestHFileBlockIndex {
     HFileBlock.Writer hbw = new HFileBlock.Writer(TEST_UTIL.getConfiguration(), null, meta);
     FSDataOutputStream outputStream = fs.create(path);
     HFileBlockIndex.BlockIndexWriter biw =
-      new HFileBlockIndex.BlockIndexWriter(hbw, null, null, null);
+      new HFileBlockIndex.BlockIndexWriter(hbw, null, null, null, 3);
     writeDataBlocksAndCreateIndex(hbw, outputStream, biw);
 
     numLevels = biw.getNumLevels();
@@ -494,7 +494,7 @@ public class TestHFileBlockIndex {
 
   @Test
   public void testBlockIndexChunk() throws IOException {
-    BlockIndexChunk c = new HFileBlockIndex.BlockIndexChunkImpl();
+    BlockIndexChunk c = new HFileBlockIndex.BlockIndexChunkImpl(3);
     HFileIndexBlockEncoder indexBlockEncoder = NoOpIndexBlockEncoder.INSTANCE;
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     int N = 1000;

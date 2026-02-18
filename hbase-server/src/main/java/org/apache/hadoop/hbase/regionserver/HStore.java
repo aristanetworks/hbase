@@ -74,6 +74,7 @@ import org.apache.hadoop.hbase.conf.ConfigurationManager;
 import org.apache.hadoop.hbase.conf.PropagatingConfigurationObserver;
 import org.apache.hadoop.hbase.coprocessor.ReadOnlyConfiguration;
 import org.apache.hadoop.hbase.io.HeapSize;
+import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoder;
@@ -964,7 +965,7 @@ public class HStore
     boolean isCompaction, ScanQueryMatcher matcher, byte[] startRow, byte[] stopRow, long readPt,
     boolean onlyLatestVersion) throws IOException {
     return getScanners(cacheBlocks, usePread, isCompaction, matcher, startRow, true, stopRow, false,
-      readPt, onlyLatestVersion);
+      readPt, onlyLatestVersion, null);
   }
 
   /**
@@ -978,12 +979,13 @@ public class HStore
    * @param stopRow         the stop row
    * @param includeStopRow  true to include stop row, false if not
    * @param readPt          the read point of the current scan
+   * @param timeRange       optional time range for block-level filtering, can be null
    * @return all scanners for this store
    */
   public List<KeyValueScanner> getScanners(boolean cacheBlocks, boolean usePread,
     boolean isCompaction, ScanQueryMatcher matcher, byte[] startRow, boolean includeStartRow,
-    byte[] stopRow, boolean includeStopRow, long readPt, boolean onlyLatestVersion)
-    throws IOException {
+    byte[] stopRow, boolean includeStopRow, long readPt, boolean onlyLatestVersion,
+    TimeRange timeRange) throws IOException {
     Collection<HStoreFile> storeFilesToScan;
     List<KeyValueScanner> memStoreScanners;
     this.storeEngine.readLock();
@@ -1008,7 +1010,7 @@ public class HStore
       // but now we get them in ascending order, which I think is
       // actually more correct, since memstore get put at the end.
       List<StoreFileScanner> sfScanners = StoreFileScanner.getScannersForStoreFiles(
-        storeFilesToScan, cacheBlocks, usePread, isCompaction, false, matcher, readPt);
+        storeFilesToScan, cacheBlocks, usePread, isCompaction, false, matcher, readPt, timeRange);
       List<KeyValueScanner> scanners = new ArrayList<>(sfScanners.size() + 1);
       scanners.addAll(sfScanners);
       // Then the memstore scanners

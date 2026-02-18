@@ -327,10 +327,46 @@ public final class HFile {
   /** The configuration key for HFile version to use for new files */
   public static final String FORMAT_VERSION_KEY = "hfile.format.version";
 
+  /**
+   * Configuration key for HFile minor version to use for new files.
+   * Defaults to 3 (stable, production-ready format).
+   * Set to 4 to enable v4 features (block-level timestamps for improved time-range filtering).
+   */
+  public static final String FORMAT_MINOR_VERSION_KEY = "hfile.format.minor.version";
+
+  /**
+   * Default minor version for new HFiles.
+   * Conservative default of v3 ensures stability and rollback safety.
+   * Users must explicitly set to 4 to enable new features.
+   */
+  public static final int DEFAULT_MINOR_VERSION = 3;
+
   public static int getFormatVersion(Configuration conf) {
     int version = conf.getInt(FORMAT_VERSION_KEY, MAX_FORMAT_VERSION);
     checkFormatVersion(version);
     return version;
+  }
+
+  /**
+   * Gets the configured minor version for writing new HFiles.
+   * Defaults to v3 for stability and rollback safety.
+   * Set hfile.format.minor.version=4 to enable v4 features (block-level timestamps).
+   *
+   * @param conf Configuration
+   * @return the minor version to use (defaults to DEFAULT_MINOR_VERSION = 3)
+   */
+  public static int getFormatMinorVersion(Configuration conf) {
+    // Default to v3 for stability and rollback safety
+    int minorVersion = conf.getInt(FORMAT_MINOR_VERSION_KEY, DEFAULT_MINOR_VERSION);
+
+    // Validate range
+    if (minorVersion < 0 || minorVersion > HFileReaderImpl.MAX_MINOR_VERSION) {
+      throw new IllegalArgumentException(
+        "Invalid HFile minor version: " + minorVersion + " (expected to be between 0 and "
+        + HFileReaderImpl.MAX_MINOR_VERSION + ")");
+    }
+
+    return minorVersion;
   }
 
   /**

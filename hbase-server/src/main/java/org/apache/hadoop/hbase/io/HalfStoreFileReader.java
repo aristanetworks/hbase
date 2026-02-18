@@ -287,6 +287,11 @@ public class HalfStoreFileReader extends StoreFileReader {
       public void recordBlockSize(IntConsumer blockSizeConsumer) {
         this.delegate.recordBlockSize(blockSizeConsumer);
       }
+
+      @Override
+      public void setTimeRange(org.apache.hadoop.hbase.io.TimeRange timeRange) {
+        this.delegate.setTimeRange(timeRange);
+      }
     };
   }
 

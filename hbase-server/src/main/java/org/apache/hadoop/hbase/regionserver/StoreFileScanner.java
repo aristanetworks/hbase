@@ -118,16 +118,17 @@ public class StoreFileScanner implements KeyValueScanner {
     boolean cacheBlocks, boolean usePread, boolean isCompaction, boolean useDropBehind, long readPt)
     throws IOException {
     return getScannersForStoreFiles(files, cacheBlocks, usePread, isCompaction, useDropBehind, null,
-      readPt);
+      readPt, null);
   }
 
   /**
    * Return an array of scanners corresponding to the given set of store files, And set the
    * ScanQueryMatcher for each store file scanner for further optimization
+   * @param timeRange optional time range for block-level filtering, can be null
    */
   public static List<StoreFileScanner> getScannersForStoreFiles(Collection<HStoreFile> files,
     boolean cacheBlocks, boolean usePread, boolean isCompaction, boolean canUseDrop,
-    ScanQueryMatcher matcher, long readPt) throws IOException {
+    ScanQueryMatcher matcher, long readPt, TimeRange timeRange) throws IOException {
     if (files.isEmpty()) {
       return Collections.emptyList();
     }
@@ -151,6 +152,10 @@ public class StoreFileScanner implements KeyValueScanner {
           scanner = sf.getStreamScanner(canUseDrop, cacheBlocks, isCompaction, readPt, i,
             canOptimizeForNonNullColumn);
         }
+        // Set time range for block-level filtering if provided
+        if (timeRange != null) {
+          scanner.hfs.setTimeRange(timeRange);
+        }
         scanners.add(scanner);
       }
       succ = true;
@@ -162,6 +167,16 @@ public class StoreFileScanner implements KeyValueScanner {
       }
     }
     return scanners;
+  }
+
+  /**
+   * Overload for backward compatibility - calls main method with null timeRange
+   */
+  public static List<StoreFileScanner> getScannersForStoreFiles(Collection<HStoreFile> files,
+    boolean cacheBlocks, boolean usePread, boolean isCompaction, boolean canUseDrop,
+    ScanQueryMatcher matcher, long readPt) throws IOException {
+    return getScannersForStoreFiles(files, cacheBlocks, usePread, isCompaction, canUseDrop, matcher,
+      readPt, null);
   }
 
   /**

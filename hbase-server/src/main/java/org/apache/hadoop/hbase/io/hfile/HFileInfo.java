@@ -380,9 +380,12 @@ public class HFileInfo implements SortedMap<byte[], byte[]> {
 
       HFileIndexBlockEncoder indexBlockEncoder =
         HFileIndexBlockEncoderImpl.createFromFileInfo(this);
-      this.dataIndexReader = new HFileBlockIndex.CellBasedKeyBlockIndexReaderV2(
-        trailer.createComparator(), trailer.getNumDataIndexLevels(), indexBlockEncoder);
-      dataIndexReader.readMultiLevelIndexRoot(dataBlockRootIndex, trailer.getDataIndexCount());
+      HFileBlockIndex.CellBasedKeyBlockIndexReaderV2 v2Reader =
+        new HFileBlockIndex.CellBasedKeyBlockIndexReaderV2(trailer.createComparator(),
+          trailer.getNumDataIndexLevels(), indexBlockEncoder);
+      v2Reader.readMultiLevelIndexRoot(dataBlockRootIndex, trailer.getDataIndexCount(),
+        trailer.getMinorVersion());
+      this.dataIndexReader = v2Reader;
       reader.setDataBlockIndexReader(dataIndexReader);
       // Meta index.
       this.metaIndexReader = new HFileBlockIndex.ByteArrayKeyBlockIndexReader(1);

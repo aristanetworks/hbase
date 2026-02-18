@@ -51,4 +51,10 @@ public interface BlockIndexChunk {
   byte[] getMidKeyMetadata() throws IOException;
 
   void clear();
+
+  boolean hasTimestamps();
+
+  long getBlockMinTimestamp(int i);
+
+  long getBlockMaxTimestamp(int i);
 }

@@ -42,6 +42,7 @@ import org.apache.hadoop.hbase.SizeCachedByteBufferKeyValue;
 import org.apache.hadoop.hbase.SizeCachedKeyValue;
 import org.apache.hadoop.hbase.SizeCachedNoTagsByteBufferKeyValue;
 import org.apache.hadoop.hbase.SizeCachedNoTagsKeyValue;
+import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoder;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
@@ -118,10 +119,13 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
   /** Maximum minor version supported by this HFile format */
   // We went to version 2 when we moved to pb'ing fileinfo and the trailer on
   // the file. This version can read Writables version 1.
-  static final int MAX_MINOR_VERSION = 3;
+  static final int MAX_MINOR_VERSION = 4;
 
   /** Minor versions starting with this number have faked index key */
   static final int MINOR_VERSION_WITH_FAKED_KEY = 3;
+
+  /** Minor versions starting with this number have block-level timestamp metadata */
+  static final int MINOR_VERSION_WITH_BLOCK_TIMERANGE = 4;
 
   /**
    * Opens a HFile.
@@ -315,6 +319,7 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
     protected final boolean cacheBlocks;
     protected final boolean pread;
     protected final boolean isCompaction;
+    private TimeRange timeRange;
     private int currKeyLen;
     private int currValueLen;
     private int currMemstoreTSLen;
@@ -434,6 +439,11 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
         providedCurrentBlockSize = true;
         blockSizeConsumer.accept(curBlock.getUncompressedSizeWithoutHeader());
       }
+    }
+
+    @Override
+    public void setTimeRange(TimeRange timeRange) {
+      this.timeRange = timeRange;
     }
 
     // Returns the #bytes in HFile for the current cell. Used to skip these many bytes in current
@@ -751,7 +761,9 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
         return null;
       }
       HFileBlock block = this.curBlock;
+      boolean skippedBlock = false;
       do {
+        skippedBlock = false;
         if (block.getOffset() >= lastDataBlockOffset) {
           releaseIfNotCurBlock(block);
           return null;
@@ -760,18 +772,82 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
           releaseIfNotCurBlock(block);
           throw new IOException("Invalid block offset=" + block + ", path=" + reader.getPath());
         }
+
+        // Calculate the offset of the next block
+        long nextBlockOffset = block.getOffset() + block.getOnDiskSizeWithHeader();
+        long nextBlockOnDiskSize = block.getNextBlockOnDiskSize();
+
+        // Check if we should skip this block based on time range filtering
+        if (timeRange != null) {
+          boolean isScanMetricsEnabled = ThreadLocalServerSideScanMetrics.isScanMetricsEnabled();
+          if (isScanMetricsEnabled) {
+            ThreadLocalServerSideScanMetrics.addBlocksEvaluatedForTimeRange(1);
+          }
+
+          if (shouldSkipBlockByTimeRange(nextBlockOffset)) {
+            if (isScanMetricsEnabled) {
+              ThreadLocalServerSideScanMetrics.addBlocksSkippedByTimeRange(1);
+            }
+
+            // Read the skipped block to get its header info (on-disk size,
+            // next block size) so we can navigate past it to the following block.
+            HFileBlock tempBlock = reader.readBlock(nextBlockOffset,
+              nextBlockOnDiskSize, false, pread, isCompaction, true, null,
+              getEffectiveDataBlockEncoding());
+
+            if (tempBlock == null) {
+              releaseIfNotCurBlock(block);
+              return null;
+            }
+
+            releaseIfNotCurBlock(block);
+            block = tempBlock;
+            skippedBlock = true;
+            continue;
+          }
+        }
+
         // We are reading the next block without block type validation, because
         // it might turn out to be a non-data block.
-        block = reader.readBlock(block.getOffset() + block.getOnDiskSizeWithHeader(),
-          block.getNextBlockOnDiskSize(), cacheBlocks, pread, isCompaction, true, null,
+        releaseIfNotCurBlock(block);
+        block = reader.readBlock(nextBlockOffset,
+          nextBlockOnDiskSize, cacheBlocks, pread, isCompaction, true, null,
           getEffectiveDataBlockEncoding());
         if (block != null && !block.getBlockType().isData()) {
           // Whatever block we read we will be returning it unless
           // it is a datablock. Just in case the blocks are non data blocks
           block.release();
         }
-      } while (!block.getBlockType().isData());
+      } while (!block.getBlockType().isData() || skippedBlock);
       return block;
+    }
+
+    /**
+     * Check if a block at the given offset should be skipped based on time range filtering.
+     * @param blockOffset the offset of the block to check
+     * @return true if the block should be skipped, false otherwise
+     */
+    private boolean shouldSkipBlockByTimeRange(long blockOffset) {
+      if (timeRange == null) {
+        return false;
+      }
+
+      HFileBlockIndex.BlockIndexReader dataBlockIndexReader = reader.getDataBlockIndexReader();
+      if (dataBlockIndexReader == null) {
+        return false;
+      }
+
+      // Get the encoded seeker which has the timestamp filtering logic
+      HFileIndexBlockEncoder.EncodedSeeker seeker = dataBlockIndexReader.getEncodedSeeker();
+      if (seeker == null || !(seeker instanceof NoOpIndexBlockEncoder.NoOpEncodedSeeker)) {
+        return false;
+      }
+
+      NoOpIndexBlockEncoder.NoOpEncodedSeeker noOpSeeker =
+        (NoOpIndexBlockEncoder.NoOpEncodedSeeker) seeker;
+
+      // Check if block should be skipped
+      return !noOpSeeker.shouldReadBlockAtOffset(blockOffset, timeRange);
     }
 
     public DataBlockEncoding getEffectiveDataBlockEncoding() {

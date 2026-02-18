@@ -81,6 +81,8 @@ public class ServerSideScanMetrics {
   public static final String BLOCK_READ_OPS_COUNT_METRIC_NAME = "BLOCK_READ_OPS_COUNT";
   public static final String RPC_SCAN_PROCESSING_TIME_METRIC_NAME = "RPC_SCAN_PROCESSING_TIME";
   public static final String RPC_SCAN_QUEUE_WAIT_TIME_METRIC_NAME = "RPC_SCAN_QUEUE_WAIT_TIME";
+  public static final String BLOCKS_SKIPPED_BY_TIME_RANGE_METRIC_NAME = "BLOCKS_SKIPPED_BY_TIME_RANGE";
+  public static final String BLOCKS_EVALUATED_FOR_TIME_RANGE_METRIC_NAME = "BLOCKS_EVALUATED_FOR_TIME_RANGE";
 
   /**
    * @deprecated As of release 2.0.0, this will be removed in HBase 3.0.0

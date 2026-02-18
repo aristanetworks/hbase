@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.function.IntConsumer;
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.regionserver.Shipper;
 import org.apache.yetus.audience.InterfaceAudience;
 
@@ -148,4 +149,12 @@ public interface HFileScanner extends Shipper, Closeable {
    * @param blockSizeConsumer to be called with block size in bytes, once per block.
    */
   void recordBlockSize(IntConsumer blockSizeConsumer);
+
+  /**
+   * Set the time range for this scanner to enable block-level filtering.
+   * Blocks whose timestamp ranges don't overlap with the specified time range can be skipped,
+   * improving scan performance for time-bounded queries.
+   * @param timeRange the time range to filter blocks, or null to disable filtering
+   */
+  void setTimeRange(TimeRange timeRange);
 }

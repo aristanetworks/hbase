@@ -87,6 +87,12 @@ public final class ThreadLocalServerSideScanMetrics {
   private static final ThreadLocal<AtomicLong> FS_READ_TIME =
     ThreadLocal.withInitial(() -> new AtomicLong(0));
 
+  private static final ThreadLocal<AtomicLong> BLOCKS_SKIPPED_BY_TIME_RANGE =
+    ThreadLocal.withInitial(() -> new AtomicLong(0));
+
+  private static final ThreadLocal<AtomicLong> BLOCKS_EVALUATED_FOR_TIME_RANGE =
+    ThreadLocal.withInitial(() -> new AtomicLong(0));
+
   public static void setScanMetricsEnabled(boolean enable) {
     IS_SCAN_METRICS_ENABLED.set(enable);
   }
@@ -109,6 +115,14 @@ public final class ThreadLocalServerSideScanMetrics {
 
   public static long addFsReadTime(long time) {
     return FS_READ_TIME.get().addAndGet(time);
+  }
+
+  public static long addBlocksSkippedByTimeRange(long count) {
+    return BLOCKS_SKIPPED_BY_TIME_RANGE.get().addAndGet(count);
+  }
+
+  public static long addBlocksEvaluatedForTimeRange(long count) {
+    return BLOCKS_EVALUATED_FOR_TIME_RANGE.get().addAndGet(count);
   }
 
   public static boolean isScanMetricsEnabled() {
@@ -135,6 +149,14 @@ public final class ThreadLocalServerSideScanMetrics {
     return FS_READ_TIME.get();
   }
 
+  public static AtomicLong getBlocksSkippedByTimeRangeCounter() {
+    return BLOCKS_SKIPPED_BY_TIME_RANGE.get();
+  }
+
+  public static AtomicLong getBlocksEvaluatedForTimeRangeCounter() {
+    return BLOCKS_EVALUATED_FOR_TIME_RANGE.get();
+  }
+
   public static long getBytesReadFromFsAndReset() {
     return getBytesReadFromFsCounter().getAndSet(0);
   }
@@ -155,12 +177,22 @@ public final class ThreadLocalServerSideScanMetrics {
     return getFsReadTimeCounter().getAndSet(0);
   }
 
+  public static long getBlocksSkippedByTimeRangeAndReset() {
+    return getBlocksSkippedByTimeRangeCounter().getAndSet(0);
+  }
+
+  public static long getBlocksEvaluatedForTimeRangeAndReset() {
+    return getBlocksEvaluatedForTimeRangeCounter().getAndSet(0);
+  }
+
   public static void reset() {
     getBytesReadFromFsAndReset();
     getBytesReadFromBlockCacheAndReset();
     getBytesReadFromMemstoreAndReset();
     getBlockReadOpsCountAndReset();
     getFsReadTimeAndReset();
+    getBlocksSkippedByTimeRangeAndReset();
+    getBlocksEvaluatedForTimeRangeAndReset();
   }
 
   public static void populateServerSideScanMetrics(ServerSideScanMetrics metrics) {
@@ -177,5 +209,9 @@ public final class ThreadLocalServerSideScanMetrics {
       getBlockReadOpsCountCounter().get());
     metrics.addToCounter(ServerSideScanMetrics.FS_READ_TIME_METRIC_NAME,
       getFsReadTimeCounter().get());
+    metrics.addToCounter(ServerSideScanMetrics.BLOCKS_SKIPPED_BY_TIME_RANGE_METRIC_NAME,
+      getBlocksSkippedByTimeRangeCounter().get());
+    metrics.addToCounter(ServerSideScanMetrics.BLOCKS_EVALUATED_FOR_TIME_RANGE_METRIC_NAME,
+      getBlocksEvaluatedForTimeRangeCounter().get());
   }
 }

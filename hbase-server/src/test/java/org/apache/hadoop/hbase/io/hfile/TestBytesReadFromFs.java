@@ -205,7 +205,7 @@ public class TestBytesReadFromFs {
     CellComparator comparator = trailer.createComparator();
     // Initialize the seeker
     seeker.initRootIndex(block, trailer.getDataIndexCount(), comparator,
-      trailer.getNumDataIndexLevels());
+      trailer.getNumDataIndexLevels(), trailer.getMinorVersion());
 
     int rootLevIndex = seeker.rootBlockContainingKey(keyValue);
     long currentOffset = seeker.getBlockOffset(rootLevIndex);
