@@ -39,6 +39,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.backup.HFileArchiver;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.RegionInfo;
@@ -786,6 +787,18 @@ public class RestoreSnapshotHelper {
       refLink = HFileLink.createHFileLinkName(snapshotTable, snapshotRegionName, fileName);
       linkPath = new Path(familyDir,
         HFileLink.createHFileLinkName(snapshotTable, regionInfo.getEncodedName(), hfileName));
+      // Write a back-reference so HFileLinkCleaner knows the archived parent HFile is still
+      // referenced by this clone region. Without this, once CatalogJanitor GCs the split-parent
+      // region (archiving its HFiles), HFileLinkCleaner sees no back-references and deletes
+      // them — breaking every read on the cloned table.
+      Path archiveStoreDir =
+        HFileArchiveUtil.getStoreArchivePath(conf, snapshotTable, snapshotRegionName,
+          familyDir.getName());
+      Path backRefDir = HFileLink.getBackReferencesDir(archiveStoreDir, fileName);
+      fs.mkdirs(backRefDir);
+      String backRefName = HFileLink.createBackReferenceName(
+        tableDesc.getTableName().getNameAsString(), clonedRegionName);
+      fs.createNewFile(new Path(backRefDir, backRefName));
     }
 
     Path outPath = new Path(familyDir, refLink + '.' + clonedRegionName);
