@@ -18,18 +18,29 @@
 package org.apache.hadoop.hbase.regionserver;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.OptionalLong;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HDFSBlocksDistribution;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequestImpl;
+import org.apache.hadoop.hbase.regionserver.compactions.ExploringCompactionPolicy;
 import org.apache.hadoop.hbase.regionserver.compactions.RatioBasedCompactionPolicy;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.TimeOffsetEnvironmentEdge;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @Tag(SmallTests.TAG)
 public class TestDefaultCompactSelection extends TestCompactionPolicy {
@@ -181,5 +192,36 @@ public class TestDefaultCompactSelection extends TestCompactionPolicy {
         .selectCompaction(candidates, new ArrayList<>(), false, false, false);
     assertTrue(result.getFiles().isEmpty());
     store.setScanInfo(oldScanInfo);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = { false, true })
+  public void testSingleMajorCompactedFileExpiredByTtl(boolean nanosecondTimestamps)
+    throws IOException {
+    Configuration testConf = new Configuration(conf);
+    testConf.setLong(HConstants.MAJOR_COMPACTION_PERIOD, 1);
+    testConf.setFloat("hbase.hregion.majorcompaction.jitter", 0);
+
+    long now = nanosecondTimestamps
+      ? EnvironmentEdgeManager.currentTimeNano()
+      : EnvironmentEdgeManager.currentTime();
+    long ttl = nanosecondTimestamps ? 1_000_000_000L : 1_000L;
+
+    StoreConfigInformation storeConfigInfo = mock(StoreConfigInformation.class);
+    when(storeConfigInfo.getStoreFileTtl()).thenReturn(ttl);
+    when(storeConfigInfo.isNanosecondTimestamps()).thenReturn(nanosecondTimestamps);
+    when(storeConfigInfo.getRegionInfo()).thenReturn(RegionInfoBuilder.FIRST_META_REGIONINFO);
+    when(storeConfigInfo.getColumnFamilyName()).thenReturn("family");
+
+    HStoreFile file = mock(HStoreFile.class);
+    when(file.getModificationTimestamp()).thenReturn(EnvironmentEdgeManager.currentTime() - 2);
+    when(file.getMinimumTimestamp()).thenReturn(OptionalLong.of(now - ttl - 1));
+    when(file.isMajorCompactionResult()).thenReturn(true);
+    HDFSBlocksDistribution distribution = mock(HDFSBlocksDistribution.class);
+    when(distribution.getBlockLocalityIndex(anyString())).thenReturn(1.0F);
+    when(file.getHDFSBlockDistribution()).thenReturn(distribution);
+
+    RatioBasedCompactionPolicy policy = new ExploringCompactionPolicy(testConf, storeConfigInfo);
+    assertTrue(policy.shouldPerformMajorCompaction(Collections.singleton(file)));
   }
 }

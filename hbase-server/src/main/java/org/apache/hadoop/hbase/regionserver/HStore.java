@@ -442,6 +442,11 @@ public class HStore
   }
 
   @Override
+  public boolean isNanosecondTimestamps() {
+    return this.scanInfo.isNanosecondTimestamps();
+  }
+
+  @Override
   public long getMemStoreFlushSize() {
     // TODO: Why is this in here? The flushsize of the region rather than the store? St.Ack
     return this.region.memstoreFlushSize;

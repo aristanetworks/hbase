@@ -37,6 +37,11 @@ public interface StoreConfigInformation {
   /** Returns Gets the cf-specific time-to-live for store files. */
   long getStoreFileTtl();
 
+  /** Returns whether cell timestamps for this store use nanosecond precision. */
+  default boolean isNanosecondTimestamps() {
+    return false;
+  }
+
   /**
    * @return Gets the cf-specific compaction check frequency multiplier. The need for compaction
    *         (outside of normal checks during flush, open, etc.) will be ascertained every

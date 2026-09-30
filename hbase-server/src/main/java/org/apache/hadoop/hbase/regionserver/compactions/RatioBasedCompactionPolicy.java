@@ -78,7 +78,11 @@ public class RatioBasedCompactionPolicy extends SortedCompactionPolicy {
         // Single file
         HStoreFile sf = filesToCompact.iterator().next();
         OptionalLong minTimestamp = sf.getMinimumTimestamp();
-        long oldest = minTimestamp.isPresent() ? now - minTimestamp.getAsLong() : Long.MIN_VALUE;
+        long nowForCells = storeConfigInfo != null && storeConfigInfo.isNanosecondTimestamps()
+          ? EnvironmentEdgeManager.currentTimeNano()
+          : now;
+        long oldest =
+          minTimestamp.isPresent() ? nowForCells - minTimestamp.getAsLong() : Long.MIN_VALUE;
         if (sf.isMajorCompactionResult() && (cfTTL == Long.MAX_VALUE || oldest < cfTTL)) {
           float blockLocalityIndex = sf.getHDFSBlockDistribution()
             .getBlockLocalityIndex(DNS.getHostname(comConf.conf, DNS.ServerType.REGIONSERVER));
@@ -89,7 +93,7 @@ public class RatioBasedCompactionPolicy extends SortedCompactionPolicy {
             result = true;
           } else {
             LOG.debug("Skipping major compaction of " + regionInfo
-              + " because one (major) compacted file only, oldestTime " + oldest + "ms is < TTL="
+              + " because one (major) compacted file only, oldestTime " + oldest + " is < TTL="
               + cfTTL + " and blockLocalityIndex is " + blockLocalityIndex + " (min "
               + comConf.getMinLocalityToForceCompact() + ")");
           }
